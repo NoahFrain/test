@@ -20,7 +20,7 @@
   }
   let S = load();
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('⚠ Could not save — storage full or blocked'); } }
-  const ui = { tab: 'train', draft: null, modal: null, scope: 'meso', pf: 'all', pw: null, exSel: '', openSess: null, histAll: false, tipHidden: false };
+  const ui = { tab: 'train', wiz: null, draft: null, modal: null, scope: 'meso', pf: 'all', pw: null, exSel: '', openSess: null, histAll: false, tipHidden: false };
   let EX = {}; function reindex() { EX = Object.fromEntries(S.exercises.map(e => [e.id, e])); } reindex();
   const activeMeso = () => S.mesos.find(m => m.id === S.activeMesoId && !m.ended) || null;
   const prioOf = (m, muscle) => (m && m.prio && m.prio[muscle]) || 'N';
@@ -34,6 +34,12 @@
       if (s.mesoId === mesoId) return { it, s }; if (!any) any = { it, s };
     }
     return any;
+  }
+  function lastMeso() { return [...S.mesos].sort((x, y) => y.start - x.start)[0] || null; }
+  function lastRanges() {
+    const out = {}; const m = lastMeso(); if (!m) return out;
+    m.days.forEach(d => d.items.forEach(it => { out[it.exId] = { min: it.min, max: it.max }; }));
+    return out;
   }
   function buildItem(m, week, exId, tmpl) {
     const ex = EX[exId], n = C.plannedSets(tmpl.sets, prioOf(m, ex.muscle), week, m);
@@ -139,6 +145,7 @@
 
   // --- mesocycle tab
   function viewMeso() {
+    if (ui.wiz) return viewWiz();
     if (ui.draft) return viewDraft();
     const m = activeMeso();
     let h = '<h1>Mesocycle</h1>';
@@ -158,13 +165,21 @@
 
   function viewDraft() {
     const d = ui.draft, muscles = [...new Set(d.days.flatMap(x => x.items.map(i => EX[i.exId] && EX[i.exId].muscle)))].filter(Boolean);
-    let h = `<h1>${d.editing ? 'Edit' : 'New'} mesocycle</h1>
+    const vol = C.planVolume(d.days, EX);
+    let h = (d.fromWiz && !d.editing ? `<div class="row" style="margin:4px 2px 2px"><button class="sm ghost" onclick="A.wizStep('${d.fromWiz === 'freestyle' ? 'free' : 'split'}')">‹ Back</button><span class="sp"></span><span class="mut xs">Step 4 of 4</span></div>` : '')
+      + `<h1>${d.editing ? 'Edit' : d.fromWiz ? 'Exercises' : 'New mesocycle'}</h1>`;
+    h += `
     <div class="card"><input value="${esc(d.name)}" placeholder="Name" oninput="ui_d('name',this.value)">
       <div class="g2" style="margin-top:8px"><label class="xs mut">Weeks<select onchange="ui_d('weeks',+this.value)">${[3, 4, 5, 6, 7, 8].map(n => `<option ${n === d.weeks ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
       <label class="xs mut">Deload last<br><input type="checkbox" ${d.deload ? 'checked' : ''} onchange="ui_d('deload',this.checked)"></label></div></div>`;
-    if (!d.editing) h += `<div class="card"><label class="xs mut">Load template<select onchange="A.tmpl(this.value);this.selectedIndex=0"><option value="">Choose…</option>${Object.keys(C.TEMPLATES).map(k => `<option>${esc(k)}</option>`).join('')}</select></label></div>`;
-    h += '<h2>Muscle priority</h2>';
-    h += muscles.length ? `<div class="card"><div class="chips">${muscles.map(mu => `<button class="chip ${d.prio[mu] || 'N'}" style="min-height:34px;padding:4px 12px" onclick="A.cyc('${esc(mu)}')">${esc(mu)} · ${{ P: 'priority', N: 'normal', M: 'maintain' }[d.prio[mu] || 'N']}</button>`).join('')}</div><div class="xs mut" style="margin-top:8px">Tap to cycle. Priority: +1 set/week · Normal: +1 set every 2 weeks · Maintain: flat. Deload ≈ half sets.</div></div>` : '<div class="card mut sm">Add exercises first.</div>';
+    if (!d.editing && !d.fromWiz) h += `<div class="card"><label class="xs mut">Load template<select onchange="A.tmpl(this.value);this.selectedIndex=0"><option value="">Choose…</option>${Object.keys(C.TEMPLATES).map(k => `<option>${esc(k)}</option>`).join('')}</select></label></div>`;
+    h += '<h2>Weekly sets</h2>';
+    h += muscles.length ? `<div class="card">${muscles.slice().sort((x, y) => C.DAY_ORDER.indexOf(x) - C.DAY_ORDER.indexOf(y)).map(mu => {
+      const p = d.prio[mu] || 'N', t = C.weeklyTarget(mu, p), v = vol[mu] || 0, off = v - t;
+      return `<div class="row" style="padding:5px 0"><span class="sp sm">${esc(mu)}</span>
+        <span class="sm" style="width:64px;text-align:right;color:${Math.abs(off) <= 2 ? 'var(--mut)' : off < 0 ? 'var(--warn)' : 'var(--acc)'}">${v} / ${t}</span>
+        <button class="chip ${p}" style="min-height:30px;width:86px" onclick="A.cyc('${esc(mu)}')">${{ P: 'Priority', N: 'Normal', M: 'Maintain' }[p]}</button></div>`;
+    }).join('')}<div class="xs mut" style="margin-top:8px">Sets in this plan vs. the weekly target for that priority. Amber means the day layout caps that muscle — spread it over another day to reach the target. Set counts stay flat all meso; progression comes from reps and weight. Deload ≈ half sets.</div></div>` : '<div class="card mut sm">Add exercises first.</div>';
     h += '<h2>Days</h2>';
     d.days.forEach((day, di) => {
       h += `<div class="card"><div class="row"><input value="${esc(day.name)}" oninput="ui_day(${di},this.value)"><button class="sm" onclick="A.dupDay(${di})">⧉</button><button class="sm bad" onclick="A.delDay(${di})">✕</button></div>`;
@@ -177,6 +192,53 @@
     });
     h += `<button onclick="A.addDay()" style="width:100%">+ Add day</button><div class="g2" style="margin-top:12px"><button onclick="A.cancelDraft()">Cancel</button><button class="pri" onclick="A.saveDraft()">${d.editing ? 'Save changes' : 'Start mesocycle'}</button></div>`;
     return h;
+  }
+
+
+  // ---------- new mesocycle wizard ----------
+  const SPLITS = { full: 'Full Body', 'upper-lower': 'Upper / Lower', freestyle: 'Freestyle' };
+  function wizHead(title, sub, back) {
+    return `<div class="row" style="margin:4px 2px 2px"><button class="sm ghost" onclick="A.wizStep('${back}')">‹ Back</button><span class="sp"></span><span class="mut xs">${esc(sub)}</span></div><h1>${esc(title)}</h1>`;
+  }
+  function viewWiz() {
+    const w = ui.wiz;
+    if (w.step === 'mode') return `<h1>New mesocycle</h1>
+      <div class="card" onclick="A.wizMode('guided')"><div class="row"><div class="sp"><b>Guided setup</b><div class="mut sm">Days → priorities → split type. Builds the plan and set counts for you, then you adjust the exercises.</div></div><span class="mut">›</span></div></div>
+      <div class="card" onclick="A.wizMode('custom')"><div class="row"><div class="sp"><b>Custom</b><div class="mut sm">Go straight to the exercise builder and add days and exercises yourself.</div></div><span class="mut">›</span></div></div>
+      <button class="ghost" style="width:100%" onclick="A.cancelDraft()">Cancel</button>`;
+
+    if (w.step === 'days') return wizHead('How many days a week?', 'Step 1 of 4', 'mode')
+      + `<div class="card"><div class="chips">${[1, 2, 3, 4, 5, 6, 7].map(n => `<button class="chip ${w.days === n ? 'sel' : ''}" style="min-height:52px;min-width:52px;font-size:17px" onclick="A.wizDays(${n})">${n}</button>`).join('')}</div>
+      <div class="xs mut" style="margin-top:10px">Training days per week. You can rename or reorder them later.</div></div>
+      <button class="pri" style="width:100%" onclick="A.wizStep('prio')">Next: priorities ›</button>`;
+
+    if (w.step === 'prio') {
+      const rows = C.DAY_ORDER.map(mu => {
+        const p = w.prio[mu] || 'N', v = C.VOL[mu];
+        return `<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><span class="sp sm">${esc(mu)}</span>
+          <span class="mut xs" style="width:52px;text-align:right">${C.weeklyTarget(mu, p)} sets</span>
+          <button class="chip ${p}" style="min-height:34px;width:96px" onclick="A.wizPrio('${esc(mu)}')">${{ P: 'Priority', N: 'Normal', M: 'Maintain' }[p]}</button></div>`;
+      }).join('');
+      return wizHead('Muscle priority', 'Step 2 of 4', 'days')
+        + `<div class="card">${rows}<div class="xs mut" style="margin-top:10px">Sets a week per muscle. Maintain holds near minimum effective volume, Normal sits between that and the productive range, Priority pushes to the top of it. Set counts stay flat all meso — progression comes from reps and weight.</div></div>`
+        + `<button class="pri" style="width:100%" onclick="A.wizStep('split')">Next: split type ›</button>`;
+    }
+
+    if (w.step === 'split') return wizHead('Split type', 'Step 3 of 4', 'prio')
+      + `<div class="card" onclick="A.wizSplit('full')"><div class="row"><div class="sp"><b>Full Body</b><div class="mut sm">Upper and lower every session, volume spread across your ${w.days} days in clusters of like movements.</div></div><span class="mut">›</span></div></div>
+      <div class="card" onclick="A.wizSplit('upper-lower')"><div class="row"><div class="sp"><b>Upper / Lower</b><div class="mut sm">${w.days % 2 ? `${Math.ceil(w.days / 2)} upper, ${w.days - Math.ceil(w.days / 2)} lower — odd day goes to upper.` : `${w.days / 2} upper, ${w.days / 2} lower.`}</div></div><span class="mut">›</span></div></div>
+      <div class="card" onclick="A.wizSplit('freestyle')"><div class="row"><div class="sp"><b>Freestyle</b><div class="mut sm">Pick which muscle groups you train on each day.</div></div><span class="mut">›</span></div></div>`;
+
+    if (w.step === 'free') {
+      const rows = w.free.map((day, di) => `<div class="card"><div class="row"><b class="sp">Day ${di + 1}</b><span class="mut xs">${day.filter(Boolean).length} groups</span></div>
+        ${day.map((mu, si) => `<div class="row" style="margin-top:6px"><select onchange="A.freeSet(${di},${si},this.value)"><option value="">— none —</option>${C.DAY_ORDER.map(x => `<option ${x === mu ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>${day.length > 1 ? `<button class="sm ghost bad" onclick="A.freeDel(${di},${si})">✕</button>` : ''}</div>`).join('')}
+        ${day.length < 5 ? `<button class="sm" style="margin-top:8px" onclick="A.freeAdd(${di})">+ Muscle group</button>` : '<div class="xs mut" style="margin-top:8px">Max 5 per day</div>'}</div>`).join('');
+      const empty = w.free.some(d => !d.filter(Boolean).length);
+      return wizHead('Pick muscle groups per day', 'Step 3 of 4', 'split') + rows
+        + (empty ? '<div class="card sm" style="color:var(--warn)">Every day needs at least one muscle group.</div>' : '')
+        + `<button class="pri" style="width:100%${empty ? ';opacity:.45' : ''}" ${empty ? 'disabled' : ''} onclick="A.wizGen()">Done — build the plan ›</button>`;
+    }
+    return '';
   }
 
   // --- progress tab
@@ -336,9 +398,39 @@
     nextWeek() { const m = activeMeso(); if (m.week >= m.weeks) { A.endMeso(); return; } if (confirm('Advance to week ' + (m.week + 1) + '?')) { m.week++; ui.pw = null; save(); render(); } },
     endMeso() { const m = activeMeso(); if (m && confirm('Archive "' + m.name + '"? Your logged data stays.')) { m.ended = Date.now(); S.activeMesoId = null; save(); render(); } },
     // --- builder
-    newMeso() { ui.draft = newDraft(); ui.tab = 'meso'; render(); window.scrollTo(0, 0); },
+    newMeso() { ui.draft = null; ui.wizSaved = null; ui.wiz = { step: 'mode', days: 4, prio: {}, type: null, free: [] }; ui.tab = 'meso'; render(); window.scrollTo(0, 0); },
+    wizMode(m) {
+      if (m === 'custom') { ui.wiz = null; ui.draft = newDraft(); }
+      else ui.wiz.step = 'days';
+      render(); window.scrollTo(0, 0);
+    },
+    wizDays(n) { ui.wiz.days = n; render(); },
+    wizStep(s) {
+      if (s === 'mode' && ui.wiz && ui.wiz.step === 'mode') { A.cancelDraft(); return; }
+      if (!ui.wiz) ui.wiz = ui.wizSaved ? Object.assign(clone(ui.wizSaved), { step: s }) : { step: s, days: (ui.draft && ui.draft.days.length) || 4, prio: (ui.draft && ui.draft.prio) || {}, type: null, free: [] };
+      else ui.wiz.step = s;
+      ui.draft = null; render(); window.scrollTo(0, 0);
+    },
+    wizPrio(mu) { const w = ui.wiz; w.prio[mu] = { N: 'P', P: 'M', M: 'N' }[w.prio[mu] || 'N']; render(); },
+    wizSplit(t) {
+      const w = ui.wiz; w.type = t;
+      if (t === 'freestyle') { w.free = Array.from({ length: w.days }, (_, i) => (w.free[i] && w.free[i].length) ? w.free[i] : ['', '', '']); w.step = 'free'; render(); window.scrollTo(0, 0); }
+      else A.wizGen();
+    },
+    freeSet(di, si, v) { ui.wiz.free[di][si] = v; render(); },
+    freeAdd(di) { const d = ui.wiz.free[di]; if (d.length < 5) d.push(''); render(); },
+    freeDel(di, si) { const d = ui.wiz.free[di]; if (d.length > 1) d.splice(si, 1); render(); },
+    wizGen() {
+      const w = ui.wiz, prev = lastMeso();
+      const prefer = new Set(prev ? prev.days.flatMap(d => d.items.map(i => i.exId)) : []);
+      const days = C.generatePlan({ days: w.days, prio: w.prio, type: w.type, free: w.free, exercises: S.exercises, prefer, ranges: lastRanges() });
+      const d = newDraft();
+      d.days = days; d.prio = clone(w.prio); d.fromWiz = w.type;
+      d.name = SPLITS[w.type] + ' ' + w.days + 'd';
+      ui.wizSaved = clone(w); ui.draft = d; ui.wiz = null; save(); render(); window.scrollTo(0, 0);
+    },
     editMeso() { ui.draft = Object.assign(clone(activeMeso()), { editing: true }); render(); window.scrollTo(0, 0); },
-    cancelDraft() { ui.draft = null; render(); },
+    cancelDraft() { ui.draft = null; ui.wiz = null; render(); },
     cyc(mu) { const d = ui.draft, c = d.prio[mu] || 'N'; d.prio[mu] = { N: 'P', P: 'M', M: 'N' }[c]; render(); },
     tmpl(name) {
       if (!name) return; const d = ui.draft, T = C.TEMPLATES[name]; const byName = Object.fromEntries(S.exercises.map(e => [e.name, e]));
@@ -356,7 +448,7 @@
       const d = ui.draft; if (!d.days.some(x => x.items.length)) { toast('Add at least one exercise'); return; }
       d.days = d.days.filter(x => x.items.length);
       const bad = d.days.flatMap(x => x.items).find(i => i.min > i.max); if (bad) { toast('Min reps must be ≤ max reps'); return; }
-      const wasEditing = d.editing; delete d.editing;
+      const wasEditing = d.editing; delete d.editing; delete d.fromWiz;
       if (wasEditing) { const k = S.mesos.findIndex(m => m.id === d.id); S.mesos[k] = d; if (d.week > d.weeks) d.week = d.weeks; }
       else { const old = activeMeso(); if (old) old.ended = Date.now(); d.start = Date.now(); S.mesos.push(d); S.activeMesoId = d.id; }
       ui.draft = null; ui.tab = wasEditing ? 'meso' : 'train'; save(); render(); window.scrollTo(0, 0);

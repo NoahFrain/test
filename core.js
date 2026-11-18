@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
 
-  const TYPES = ['Machine', 'Smith Machine', 'Cable', 'Barbell', 'Other'];
+  const TYPES = ['Machine', 'Smith Machine', 'Cable', 'Barbell', 'Dumbbell', 'Other'];
   const MUSCLES = ['Chest', 'Back', 'Traps', 'Side Delts', 'Rear Delts', 'Biceps', 'Triceps', 'Forearms',
     'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
 
@@ -82,6 +82,7 @@ Ab Wheel|Abs|8-15|5`.trim().split('\n');
     if (/\(cable\)|cable/.test(n)) return 'Cable';
     if (/\(machine\)|^leg press|machine/.test(n)) return 'Machine';
     if (/\(barbell\)|barbell/.test(n)) return 'Barbell';
+    if (/\(dumbbell\)|dumbbell/.test(n)) return 'Dumbbell';
     return 'Other';
   }
   function uid() { return Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4); }
@@ -141,11 +142,9 @@ Ab Wheel|Abs|8-15|5`.trim().split('\n');
     if (isDeload(meso, week)) return 4;
     return Math.max(0, (meso.startRIR ?? 3) - (week - 1));
   }
-  /** priority: 'P' +1 set/wk, 'N' +1 set every 2 wks, 'M' flat. Deload = ~half. */
+  /** Sets are fixed for the meso (double progression only). Deload = ~half. */
   function plannedSets(base, prio, week, meso) {
-    if (isDeload(meso, week)) return Math.max(1, Math.round(base / 2));
-    const add = prio === 'P' ? week - 1 : prio === 'M' ? 0 : Math.floor((week - 1) / 2);
-    return base + Math.min(add, 5);
+    return isDeload(meso, week) ? Math.max(1, Math.round(base / 2)) : base;
   }
 
   // ---------- progression ----------
@@ -173,6 +172,119 @@ Ab Wheel|Abs|8-15|5`.trim().split('\n');
       return { mode: 'down', from: w, to: nw, sets: Array.from({ length: n }, () => ({ w: nw, r: item.min })) };
     }
     return { mode: 'hold', from: w, to: w, sets: Array.from({ length: n }, (_, i) => ({ w, r: clamp(rAt(i) + 1, item.min, item.max) })) };
+  }
+
+
+  // ---------- volume model ----------
+  /* Weekly hard sets per muscle. m = maintenance (~MEV floor), n = normal (MEV->MAV),
+     p = priority (MAV). cap = most sets worth doing for it in one session.
+     freq = most sessions per week that muscle recovers from. */
+  const VOL = {
+    'Chest': { m: 6, n: 12, p: 18, cap: 8, freq: 3 },
+    'Back': { m: 8, n: 14, p: 20, cap: 9, freq: 3 },
+    'Traps': { m: 4, n: 8, p: 14, cap: 6, freq: 3 },
+    'Side Delts': { m: 6, n: 12, p: 18, cap: 6, freq: 4 },
+    'Rear Delts': { m: 4, n: 10, p: 16, cap: 6, freq: 4 },
+    'Biceps': { m: 4, n: 10, p: 14, cap: 5, freq: 3 },
+    'Triceps': { m: 4, n: 10, p: 14, cap: 5, freq: 3 },
+    'Forearms': { m: 2, n: 6, p: 10, cap: 4, freq: 4 },
+    'Quads': { m: 6, n: 12, p: 18, cap: 7, freq: 3 },
+    'Hamstrings': { m: 4, n: 10, p: 14, cap: 6, freq: 3 },
+    'Glutes': { m: 4, n: 8, p: 14, cap: 6, freq: 3 },
+    'Calves': { m: 6, n: 12, p: 16, cap: 5, freq: 4 },
+    'Abs': { m: 4, n: 10, p: 16, cap: 6, freq: 4 },
+  };
+  const UPPER = ['Chest', 'Back', 'Traps', 'Side Delts', 'Rear Delts', 'Triceps', 'Biceps', 'Forearms'];
+  const LOWER = ['Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
+  // order inside a session: heavy compound muscles first, then arms/calves/abs
+  const DAY_ORDER = ['Chest', 'Back', 'Quads', 'Hamstrings', 'Glutes', 'Traps', 'Side Delts', 'Rear Delts', 'Triceps', 'Biceps', 'Forearms', 'Calves', 'Abs'];
+
+  function weeklyTarget(muscle, prio) {
+    const v = VOL[muscle]; if (!v) return prio === 'P' ? 12 : prio === 'M' ? 4 : 8;
+    return prio === 'P' ? v.p : prio === 'M' ? v.m : v.n;
+  }
+  function pickSpread(arr, f, off) {
+    f = Math.max(1, Math.min(f, arr.length));
+    const step = arr.length / f, out = [];
+    for (let k = 0; k < f; k++) out.push(arr[Math.round(off + k * step) % arr.length]);
+    return [...new Set(out)];
+  }
+  /** -> {names:[], load:[{muscle:sets}]} */
+  function buildSplit(days, prio, type, free) {
+    const n = Math.max(1, Math.min(7, days)); let dayMuscles, names;
+    if (type === 'freestyle') {
+      dayMuscles = (free || []).slice(0, n).map(a => [...new Set((a || []).filter(Boolean))]);
+      while (dayMuscles.length < n) dayMuscles.push([]);
+      names = dayMuscles.map((a, i) => a.length ? a.slice(0, 3).join(' / ') + (a.length > 3 ? ' +' + (a.length - 3) : '') : 'Day ' + (i + 1));
+    } else if (type === 'upper-lower') {
+      const up = Math.ceil(n / 2); let u = up, l = n - up; const seq = [];
+      while (u || l) { if (u) { seq.push('U'); u--; } if (l) { seq.push('L'); l--; } }
+      dayMuscles = seq.map(s => s === 'U' ? UPPER.slice() : LOWER.slice());
+      names = seq.map((s, i) => (s === 'U' ? 'Upper' : 'Lower') + ' ' + seq.slice(0, i + 1).filter(x => x === s).length);
+    } else {
+      dayMuscles = Array.from({ length: n }, () => [...UPPER, ...LOWER]);
+      names = Array.from({ length: n }, (_, i) => 'Full Body ' + String.fromCharCode(65 + i));
+    }
+    const load = dayMuscles.map(() => ({}));
+    const order = [...new Set(dayMuscles.flat())].sort((a, b) => DAY_ORDER.indexOf(a) - DAY_ORDER.indexOf(b));
+    order.forEach((mu, oi) => {
+      const idxs = dayMuscles.map((a, i) => a.indexOf(mu) >= 0 ? i : -1).filter(i => i >= 0);
+      const wk = weeklyTarget(mu, (prio && prio[mu]) || 'N'); if (!idxs.length || wk <= 0) return;
+      const v = VOL[mu] || { cap: 6, freq: 3 };
+      let f = Math.max(1, Math.round(wk / 3));                 // aim ~3 sets a session
+      f = Math.min(f, v.freq, idxs.length);                    // respect recovery + days available
+      f = Math.min(idxs.length, Math.max(f, Math.ceil(wk / v.cap))); // spread out rather than exceed cap
+      // stagger each muscle's days so sessions fill evenly instead of stacking on the same days
+      const chosen = pickSpread(idxs, f, oi * 1.7);
+      const total = Math.min(wk, v.cap * chosen.length);       // per-session cap wins over weekly target
+      const base = Math.floor(total / chosen.length); let rem = total - base * chosen.length;
+      chosen.forEach((di, k) => { load[di][mu] = base + (k < rem ? 1 : 0); });
+    });
+    // never hand back fewer days than asked for
+    load.forEach((l, di) => {
+      if (Object.keys(l).length) return;
+      dayMuscles[di].slice().sort((a, b) => weeklyTarget(b, (prio && prio[b]) || 'N') - weeklyTarget(a, (prio && prio[a]) || 'N'))
+        .slice(0, 3).forEach(mu => { l[mu] = 3; });
+    });
+    return { names, load };
+  }
+  /** split a muscle's session sets into 2-4 set exercises */
+  function chunkSets(total, maxEx) {
+    if (total <= 0) return [];
+    let n = Math.max(1, Math.ceil(total / 4));
+    if (total >= 5 && n < 2) n = 2;
+    n = Math.min(n, Math.max(1, maxEx), total);
+    const base = Math.floor(total / n), rem = total - base * n;
+    return Array.from({ length: n }, (_, i) => base + (i < rem ? 1 : 0));
+  }
+  /** Build full day plans. exercises in library order (compound first per muscle).
+   * prefer: Set of exIds used last meso. ranges: {exId:{min,max}} from last meso. */
+  function generatePlan(o) {
+    const { names, load } = buildSplit(o.days, o.prio, o.type, o.free);
+    const byMuscle = {};
+    for (const e of o.exercises) (byMuscle[e.muscle] || (byMuscle[e.muscle] = [])).push(e);
+    for (const mu in byMuscle) byMuscle[mu].sort((a, b) => (o.prefer && o.prefer.has(b.id) ? 1 : 0) - (o.prefer && o.prefer.has(a.id) ? 1 : 0));
+    const ptr = {};
+    return load.map((l, di) => ({
+      id: uid(), name: names[di],
+      items: Object.keys(l).sort((a, b) => DAY_ORDER.indexOf(a) - DAY_ORDER.indexOf(b)).flatMap(mu => {
+        const cands = byMuscle[mu] || []; if (!cands.length) return [];
+        const chunks = chunkSets(l[mu], cands.length), p = ptr[mu] || 0;
+        ptr[mu] = (p + chunks.length) % cands.length;
+        return chunks.map((sets, k) => {
+          const ex = cands[(p + k) % cands.length], rg = (o.ranges && o.ranges[ex.id]) || ex;
+          return { exId: ex.id, sets, min: rg.min, max: rg.max };
+        });
+      })
+    })).filter(d => d.items.length);
+  }
+  /** weekly sets per muscle implied by a set of days */
+  function planVolume(days, exById) {
+    const out = {};
+    for (const d of days) for (const it of d.items) {
+      const mu = exById[it.exId] && exById[it.exId].muscle; if (mu) out[mu] = (out[mu] || 0) + (+it.sets || 0);
+    }
+    return out;
   }
 
   // ---------- analytics ----------
@@ -304,6 +416,6 @@ Ab Wheel|Abs|8-15|5`.trim().split('\n');
     return { sessions: Object.values(sessions), created };
   }
 
-  const api = { TYPES, inferType, MUSCLES, TEMPLATES, uid, seedExercises, e1rm, roundTo, bump, isDeload, rirFor, plannedSets, suggest, bestE1, hardSetsByMuscle, exerciseSeries, muscleIndex, stalled, toStrongCSV, fromStrongCSV, parseCSV, fmtDate, fmtDur, WEEK };
+  const api = { TYPES, inferType, MUSCLES, VOL, UPPER, LOWER, DAY_ORDER, weeklyTarget, buildSplit, chunkSets, generatePlan, planVolume, TEMPLATES, uid, seedExercises, e1rm, roundTo, bump, isDeload, rirFor, plannedSets, suggest, bestE1, hardSetsByMuscle, exerciseSeries, muscleIndex, stalled, toStrongCSV, fromStrongCSV, parseCSV, fmtDate, fmtDur, WEEK };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Core = api;
 })(typeof window !== 'undefined' ? window : globalThis);
