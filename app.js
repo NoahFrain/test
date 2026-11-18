@@ -3,6 +3,7 @@
   'use strict';
   const C = window.Core;
   const KEY = 'hypertrophy.v1';
+  const BUILD = 'v5 · 2026-11-17';
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fw = (x) => (x === '' || x == null) ? '' : String(Math.round(x * 100) / 100);
@@ -231,7 +232,7 @@
 
     if (w.step === 'free') {
       const rows = w.free.map((day, di) => `<div class="card"><div class="row"><b class="sp">Day ${di + 1}</b><span class="mut xs">${day.filter(Boolean).length} groups</span></div>
-        ${day.map((mu, si) => `<div class="row" style="margin-top:6px"><select onchange="A.freeSet(${di},${si},this.value)"><option value="">— none —</option>${C.DAY_ORDER.map(x => `<option ${x === mu ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>${day.length > 1 ? `<button class="sm ghost bad" onclick="A.freeDel(${di},${si})">✕</button>` : ''}</div>`).join('')}
+        ${day.map((mu, si) => `<div class="row" style="margin-top:6px"><select onchange="A.freeSet(${di},${si},this.value)"><option value="">— none —</option>${C.DAY_ORDER.filter(x => x === mu || !day.some((o, k) => k !== si && o === x)).map(x => `<option ${x === mu ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>${day.length > 1 ? `<button class="sm ghost bad" onclick="A.freeDel(${di},${si})">✕</button>` : ''}</div>`).join('')}
         ${day.length < 5 ? `<button class="sm" style="margin-top:8px" onclick="A.freeAdd(${di})">+ Muscle group</button>` : '<div class="xs mut" style="margin-top:8px">Max 5 per day</div>'}</div>`).join('');
       const empty = w.free.some(d => !d.filter(Boolean).length);
       return wizHead('Pick muscle groups per day', 'Step 3 of 4', 'split') + rows
@@ -292,9 +293,10 @@
   // --- data tab
   function viewData() {
     let h = '<h1>Data</h1>';
-    h += `<div class="card"><b>Export / backup</b><div class="mut sm" style="margin:4px 0 10px">${S.sessions.length} workouts logged${S.lastBackup ? ' · last export ' + dstr(S.lastBackup) : ''}</div>
-      <div class="g2"><button class="pri" onclick="A.expCSV()">Strong CSV</button><button onclick="A.expJSON()">Full backup (JSON)</button></div>
-      <div class="g2" style="margin-top:8px"><label class="btn" style="text-align:center">Import CSV / JSON<input type="file" accept=".csv,.json,text/csv,application/json" style="display:none" onchange="A.imp(this)"></label><span class="xs mut" style="align-self:center">CSV merges history; JSON replaces everything.</span></div></div>`;
+    h += `<div class="card"><b>Export / backup</b><div class="mut sm" style="margin:4px 0 10px">${S.sessions.length} workout${S.sessions.length === 1 ? '' : 's'} logged${S.lastBackup ? ' · last export ' + dstr(S.lastBackup) : ''}</div>
+      <div class="g2"><button class="pri" onclick="A.expCSV()">Export CSV</button><button onclick="A.expJSON()">Backup (JSON)</button></div>
+      <label class="btn" style="text-align:center;display:block;margin-top:8px">Restore from backup<input type="file" accept=".json,application/json" style="display:none" onchange="A.restore(this)"></label>
+      <div class="xs mut" style="margin-top:6px">CSV is every set you've logged, for a spreadsheet. JSON is the backup a restore reads — restoring replaces everything on this device.</div></div>`;
     h += `<h2>Settings</h2><div class="card">
       <div class="g2"><label class="xs mut">Unit<select onchange="A.setting('unit',this.value)"><option ${S.settings.unit === 'lb' ? 'selected' : ''}>lb</option><option ${S.settings.unit === 'kg' ? 'selected' : ''}>kg</option></select></label>
       <label class="xs mut">Rest timer (s)<input type="number" inputmode="numeric" value="${S.settings.rest}" onchange="A.setting('rest',+this.value||0)"></label></div>
@@ -309,7 +311,8 @@
     }).join('') || '<div class="mut sm" style="padding:10px 0">Nothing yet.</div>') + '</div>';
     if (list.length > 15 && !ui.histAll) h += `<button class="ghost" style="width:100%" onclick="ui_set('histAll',true)">Show all ${list.length}</button>`;
     h += `<h2>Exercise library</h2><div class="card"><button class="sm" onclick="A.exEdit(null)">+ New exercise</button><div style="margin-top:6px">${[...C.MUSCLES, 'Other'].map(mu => { const l = S.exercises.filter(e => e.muscle === mu); return l.length ? `<div class="xs mut" style="margin-top:10px;text-transform:uppercase">${mu}</div>` + l.map(e => `<div class="li" onclick="A.exEdit('${e.id}')"><span class="sp sm">${esc(e.name)}</span><span class="mut xs">${esc(e.type || 'Other')} · ${e.min}–${e.max} · +${e.inc}</span></div>`).join('') : ''; }).join('')}</div></div>`;
-    h += `<div style="height:10px"></div><button class="bad ghost" onclick="A.reset()">Erase all data</button>`;
+    h += `<div style="height:10px"></div><button class="bad ghost" onclick="A.reset()">Erase all data</button>
+      <div class="xs mut" style="text-align:center;margin:14px 0 4px">Lift Bible · build ${BUILD}</div>`;
     return h;
   }
 
@@ -319,6 +322,13 @@
     if (q.type === 'pick') {
       return `<div class="modal" onclick="if(event.target===this)A.closeModal()"><div class="sheet"><div class="row"><input id="pq" placeholder="Search exercises" value="${esc(q.q)}" oninput="A.pq(this.value)" style="flex:1"><button onclick="A.exEdit(null,true)">＋</button></div>
         <div class="chips" style="margin:8px 0">${C.MUSCLES.map(mu => `<button class="chip ${q.muscle === mu ? 'sel' : ''}" style="min-height:30px" onclick="A.pm('${mu}')">${mu}</button>`).join('')}</div><div class="chips" style="margin-bottom:8px">${C.TYPES.map(t => `<button class="chip ${q.tf === t ? 'sel' : ''}" style="min-height:30px" onclick="A.pt('${t}')">${t}</button>`).join('')}</div><div id="pl">${pickList()}</div></div></div>`;
+    }
+    if (q.type === 'missing') {
+      return `<div class="modal" onclick="if(event.target===this)A.closeModal()"><div class="sheet"><h1>Not training everything</h1>
+        <p class="sm mut">These muscle groups aren't on any day:</p>
+        <div class="chips" style="margin:10px 0">${q.list.map(m => `<span class="chip" style="color:var(--warn);border-color:var(--warn)">${esc(m)}</span>`).join('')}</div>
+        <p class="sm mut">That's fine if it's deliberate. Otherwise go back and add them to a day.</p>
+        <div class="g2" style="margin-top:12px"><button class="pri" onclick="A.closeModal()">Go back and add</button><button onclick="A.wizGen(true)">Proceed anyway</button></div></div></div>`;
     }
     if (q.type === 'ex') {
       const e = q.ex;
@@ -420,8 +430,13 @@
     freeSet(di, si, v) { ui.wiz.free[di][si] = v; render(); },
     freeAdd(di) { const d = ui.wiz.free[di]; if (d.length < 5) d.push(''); render(); },
     freeDel(di, si) { const d = ui.wiz.free[di]; if (d.length > 1) d.splice(si, 1); render(); },
-    wizGen() {
+    wizGen(force) {
       const w = ui.wiz, prev = lastMeso();
+      if (w.type === 'freestyle' && !force) {
+        const miss = C.missingMuscles(w.free);
+        if (miss.length) { ui.modal = { type: 'missing', list: miss }; render(); return; }
+      }
+      ui.modal = null;
       const prefer = new Set(prev ? prev.days.flatMap(d => d.items.map(i => i.exId)) : []);
       const days = C.generatePlan({ days: w.days, prio: w.prio, type: w.type, free: w.free, exercises: S.exercises, prefer, ranges: lastRanges() });
       const d = newDraft();
@@ -445,7 +460,8 @@
     it(di, ii, f, v) { ui.draft.days[di].items[ii][f] = Math.max(1, parseInt(v) || 1); },
     addEx(di) { ui.modal = { type: 'pick', mode: 'add', di, q: '', muscle: '' }; render(); },
     saveDraft() {
-      const d = ui.draft; if (!d.days.some(x => x.items.length)) { toast('Add at least one exercise'); return; }
+      const d = ui.draft; if (!d) return;
+      if (!d.days.some(x => x.items.length)) { toast('Add at least one exercise'); return; }
       d.days = d.days.filter(x => x.items.length);
       const bad = d.days.flatMap(x => x.items).find(i => i.min > i.max); if (bad) { toast('Min reps must be ≤ max reps'); return; }
       const wasEditing = d.editing; delete d.editing; delete d.fromWiz;
@@ -489,25 +505,23 @@
       S.exercises = S.exercises.filter(e => e.id !== id); save(); ui.modal = null; render();
     },
     // --- data
-    expCSV() { shareOrDownload('hypertrophy-strong-export.csv', C.toStrongCSV(S.sessions, EX), 'text/csv'); render(); },
-    expJSON() { shareOrDownload('hypertrophy-backup-' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify(S), 'application/json'); render(); },
-    imp(inp) {
-      const f = inp.files[0]; if (!f) return; const rd = new FileReader();
+    expCSV() { shareOrDownload('lift-bible-' + new Date().toISOString().slice(0, 10) + '.csv', C.toCSV(S.sessions, EX, Object.fromEntries(S.mesos.map(m => [m.id, m])), S.settings.unit), 'text/csv'); render(); },
+    expJSON() { shareOrDownload('lift-bible-backup-' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify(S), 'application/json'); render(); },
+    restore(inp) {
+      const f = inp.files[0]; inp.value = ''; if (!f) return;
+      const rd = new FileReader();
       rd.onload = () => {
         try {
-          if (/\.json$/i.test(f.name)) {
-            const j = JSON.parse(rd.result); if (!j.v || !j.exercises || !j.sessions) throw new Error('Not a backup file');
-            if (!confirm('Replace ALL current data with this backup?')) return; S = j; save(); toast('Backup restored');
-          } else {
-            const r = C.fromStrongCSV(rd.result, S.exercises); const have = new Set(S.sessions.map(s => s.start + '|' + s.name));
-            const add = r.sessions.filter(s => !have.has(s.start + '|' + s.name));
-            S.exercises.push(...r.created); S.sessions.push(...add); save();
-            toast(`Imported ${add.length} workouts, ${r.created.length} new exercises${r.created.length ? ' (muscle: Other — set them in Library)' : ''}`);
-          }
-          reindex(); render();
-        } catch (e) { alert('Import failed: ' + e.message); }
+          const j = JSON.parse(rd.result);
+          if (!j || !j.v || !Array.isArray(j.exercises) || !Array.isArray(j.sessions)) throw new Error('Not a Lift Bible backup');
+          const n = j.sessions.length;
+          if (!confirm(`Restore ${n} workout${n === 1 ? '' : 's'} from this backup?\n\nEverything currently on this device will be replaced.`)) return;
+          (j.exercises || []).forEach(e => { if (!e.type) e.type = C.inferType(e.name); });
+          S = j; S.active = null; save(); reindex(); ui.tab = 'train'; render();
+          toast('Restored ' + n + ' workout' + (n === 1 ? '' : 's'));
+        } catch (e) { alert('Restore failed: ' + e.message); }
       };
-      rd.readAsText(f); inp.value = '';
+      rd.readAsText(f);
     },
     setting(k, v) { S.settings[k] = v; save(); render(); },
     openS(id) { ui.openSess = ui.openSess === id ? null : id; render(); },

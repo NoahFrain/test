@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
 
-  const TYPES = ['Machine', 'Smith Machine', 'Cable', 'Barbell', 'Dumbbell', 'Other'];
+  const TYPES = ['Machine', 'Smith Machine', 'Cable', 'Barbell', 'Dumbbell', 'Bodyweight', 'Other'];
   const MUSCLES = ['Chest', 'Back', 'Traps', 'Side Delts', 'Rear Delts', 'Biceps', 'Triceps', 'Forearms',
     'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs'];
 
@@ -76,8 +76,10 @@ Hanging Leg Raise|Abs|10-20|5
 Crunch (Machine)|Abs|10-15|5
 Ab Wheel|Abs|8-15|5`.trim().split('\n');
 
+  const BW = ['pull up', 'chin up', 'chest dip', 'triceps dip', 'hanging leg raise', 'ab wheel', 'back extension', 'push up', 'sit up', 'bodyweight', 'nordic', 'glute bridge', 'plank', 'inverted row', 'pistol squat', 'muscle up'];
   function inferType(name) {
     const n = String(name).toLowerCase();
+    if (BW.some(b => n.includes(b)) && !/\((barbell|dumbbell|cable|machine|smith)/.test(n)) return 'Bodyweight';
     if (/\(smith/.test(n)) return 'Smith Machine';
     if (/\(cable\)|cable/.test(n)) return 'Cable';
     if (/\(machine\)|^leg press|machine/.test(n)) return 'Machine';
@@ -231,7 +233,7 @@ Ab Wheel|Abs|8-15|5`.trim().split('\n');
       const idxs = dayMuscles.map((a, i) => a.indexOf(mu) >= 0 ? i : -1).filter(i => i >= 0);
       const wk = weeklyTarget(mu, (prio && prio[mu]) || 'N'); if (!idxs.length || wk <= 0) return;
       const v = VOL[mu] || { cap: 6, freq: 3 };
-      let f = Math.max(1, Math.round(wk / 3));                 // aim ~3 sets a session
+      let f = Math.max(1, Math.ceil(wk / 6));                  // ~6 sets a session, so a muscle lands on fewer days
       f = Math.min(f, v.freq, idxs.length);                    // respect recovery + days available
       f = Math.min(idxs.length, Math.max(f, Math.ceil(wk / v.cap))); // spread out rather than exceed cap
       // stagger each muscle's days so sessions fill evenly instead of stacking on the same days
@@ -251,8 +253,7 @@ Ab Wheel|Abs|8-15|5`.trim().split('\n');
   /** split a muscle's session sets into 2-4 set exercises */
   function chunkSets(total, maxEx) {
     if (total <= 0) return [];
-    let n = Math.max(1, Math.ceil(total / 4));
-    if (total >= 5 && n < 2) n = 2;
+    let n = total >= 14 ? 4 : total >= 9 ? 3 : total >= 5 ? 2 : 1;
     n = Math.min(n, Math.max(1, maxEx), total);
     const base = Math.floor(total / n), rem = total - base * n;
     return Array.from({ length: n }, (_, i) => base + (i < rem ? 1 : 0));
@@ -264,10 +265,11 @@ Ab Wheel|Abs|8-15|5`.trim().split('\n');
     const byMuscle = {};
     for (const e of o.exercises) (byMuscle[e.muscle] || (byMuscle[e.muscle] = [])).push(e);
     for (const mu in byMuscle) byMuscle[mu].sort((a, b) => (o.prefer && o.prefer.has(b.id) ? 1 : 0) - (o.prefer && o.prefer.has(a.id) ? 1 : 0));
-    const ptr = {};
+    const ptr = {}, TIER = { P: 0, N: 1, M: 2 };
+    const tier = mu => TIER[(o.prio && o.prio[mu]) || 'N'];
     return load.map((l, di) => ({
       id: uid(), name: names[di],
-      items: Object.keys(l).sort((a, b) => DAY_ORDER.indexOf(a) - DAY_ORDER.indexOf(b)).flatMap(mu => {
+      items: Object.keys(l).sort((a, b) => tier(a) - tier(b) || DAY_ORDER.indexOf(a) - DAY_ORDER.indexOf(b)).flatMap(mu => {
         const cands = byMuscle[mu] || []; if (!cands.length) return [];
         const chunks = chunkSets(l[mu], cands.length), p = ptr[mu] || 0;
         ptr[mu] = (p + chunks.length) % cands.length;
@@ -277,6 +279,11 @@ Ab Wheel|Abs|8-15|5`.trim().split('\n');
         });
       })
     })).filter(d => d.items.length);
+  }
+  /** muscle groups not picked on any freestyle day */
+  function missingMuscles(free) {
+    const picked = new Set((free || []).flat().filter(Boolean));
+    return DAY_ORDER.filter(m => !picked.has(m));
   }
   /** weekly sets per muscle implied by a set of days */
   function planVolume(days, exById) {
@@ -345,77 +352,36 @@ Ab Wheel|Abs|8-15|5`.trim().split('\n');
   // ---------- CSV ----------
   function csvCell(v) { v = String(v ?? ''); return /[",\n\r;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
   const pad = (n) => String(n).padStart(2, '0');
-  function fmtDate(t) { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; }
+  function fmtDate(t) { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+  function fmtTime(t) { const d = new Date(t); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
   function fmtDur(ms) { const m = Math.max(0, Math.round(ms / 60000)); const h = Math.floor(m / 60); return h ? `${h}h ${m % 60}m` : `${m}m`; }
 
-  /** Strong-compatible export */
-  function toStrongCSV(sessions, exById) {
-    const head = 'Date,Workout Name,Duration,Exercise Name,Set Order,Weight,Reps,Distance,Seconds,Notes,Workout Notes,RPE';
-    const rows = [head];
+  const CSV_COLS = ['Date', 'Time', 'Mesocycle', 'Week', 'Deload', 'Workout', 'Duration (min)', 'Exercise', 'Muscle',
+    'Equipment', 'Rep Min', 'Rep Max', 'Set', 'Weight', 'Unit', 'Reps', 'RIR', 'Est 1RM', 'Volume', 'Exercise Note', 'Workout Note'];
+
+  /** Every logged field, one row per completed set. */
+  function toCSV(sessions, exById, mesoById, unit) {
+    const rows = [CSV_COLS.join(',')];
     for (const s of [...sessions].sort((a, b) => a.start - b.start)) {
-      const dur = fmtDur((s.end || s.start) - s.start);
+      const meso = (mesoById && mesoById[s.mesoId]) || null;
+      const dl = meso && s.week ? isDeload(meso, s.week) : false;
+      const mins = Math.max(0, Math.round(((s.end || s.start) - s.start) / 60000));
       for (const it of s.items) {
         const ex = exById[it.exId]; if (!ex) continue;
         let k = 0;
         for (const st of it.sets) {
           if (!st.done) continue; k++;
-          rows.push([fmtDate(s.start), s.name, dur, ex.name, k, st.w || 0, st.r || 0, 0, 0, k === 1 ? (it.note || '') : '', k === 1 && it === s.items[0] ? (s.note || '') : '', Number.isFinite(st.rir) ? 10 - st.rir : ''].map(csvCell).join(','));
+          rows.push([fmtDate(s.start), fmtTime(s.start), meso ? meso.name : '', s.week || '', dl ? 'yes' : '',
+            s.name, mins, ex.name, ex.muscle, ex.type || '', it.min || '', it.max || '', k,
+            st.w || 0, unit || 'lb', st.r || 0, Number.isFinite(st.rir) ? st.rir : '',
+            Math.round(e1rm(st.w, st.r)) || '', Math.round((st.w || 0) * (st.r || 0)),
+            k === 1 ? (it.note || '') : '', k === 1 && it === s.items[0] ? (s.note || '') : ''].map(csvCell).join(','));
         }
       }
     }
     return rows.join('\n') + '\n';
   }
 
-  function parseCSV(text) {
-    text = text.replace(/^﻿/, '');
-    const first = text.split(/\r?\n/, 1)[0];
-    const delim = (first.match(/;/g) || []).length > (first.match(/,/g) || []).length ? ';' : ',';
-    const rows = []; let row = [], cell = '', q = false;
-    for (let i = 0; i < text.length; i++) {
-      const c = text[i];
-      if (q) { if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
-      else if (c === '"') q = true;
-      else if (c === delim) { row.push(cell); cell = ''; }
-      else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cell); cell = ''; if (row.length > 1 || row[0] !== '') rows.push(row); row = []; }
-      else cell += c;
-    }
-    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
-    return rows;
-  }
-
-  function parseDur(s) {
-    s = String(s || '').trim(); if (!s) return 0;
-    if (/^\d+$/.test(s)) return Number(s) * 1000;
-    const h = /(\d+)\s*h/.exec(s), m = /(\d+)\s*m/.exec(s), sec = /(\d+)\s*s/.exec(s);
-    return ((h ? +h[1] : 0) * 3600 + (m ? +m[1] : 0) * 60 + (sec ? +sec[1] : 0)) * 1000;
-  }
-
-  /** Import Strong CSV -> {sessions, newExercises}. exercises: existing list (matched by lowercase name). */
-  function fromStrongCSV(text, exercises) {
-    const rows = parseCSV(text); if (rows.length < 2) throw new Error('Empty CSV');
-    const H = rows[0].map(h => h.trim().toLowerCase());
-    const col = (re) => H.findIndex(h => re.test(h));
-    const ci = { date: col(/^date/), wn: col(/^workout name/), dur: col(/^duration/), ex: col(/^exercise name/), so: col(/^set order/), w: col(/^weight/), r: col(/^reps/), n: col(/^notes$/), wnote: col(/^workout notes/), rpe: col(/^rpe/) };
-    if (ci.date < 0 || ci.ex < 0 || ci.r < 0) throw new Error('Not a Strong CSV (need Date, Exercise Name, Reps)');
-    const byName = {}; exercises.forEach(e => byName[e.name.toLowerCase()] = e);
-    const created = [], sessions = {};
-    for (const r of rows.slice(1)) {
-      const exName = (r[ci.ex] || '').trim(); const reps = parseFloat(r[ci.r]);
-      if (!exName || String(r[ci.so]).toLowerCase().includes('rest')) continue;
-      let ex = byName[exName.toLowerCase()];
-      if (!ex) { ex = { id: 'i' + uid(), name: exName, muscle: 'Other', type: inferType(exName), min: 8, max: 12, inc: 5 }; byName[exName.toLowerCase()] = ex; created.push(ex); }
-      const key = r[ci.date] + '|' + (r[ci.wn] || '');
-      const start = new Date(String(r[ci.date]).replace(' ', 'T')).getTime();
-      if (!isFinite(start)) continue;
-      const s = sessions[key] || (sessions[key] = { id: 'i' + uid(), mesoId: null, week: null, dayId: null, name: r[ci.wn] || 'Workout', start, end: start + (ci.dur >= 0 ? parseDur(r[ci.dur]) : 0), note: ci.wnote >= 0 ? (r[ci.wnote] || '') : '', items: [] });
-      let it = s.items.find(i => i.exId === ex.id); if (!it) { it = { exId: ex.id, min: 0, max: 0, rir: null, sets: [], note: '' }; s.items.push(it); }
-      const rpe = ci.rpe >= 0 ? parseFloat(r[ci.rpe]) : NaN;
-      it.sets.push({ w: parseFloat(r[ci.w]) || 0, r: isFinite(reps) ? reps : 0, rir: isFinite(rpe) ? Math.max(0, 10 - rpe) : '', done: true });
-      if (ci.n >= 0 && r[ci.n] && !it.note) it.note = r[ci.n];
-    }
-    return { sessions: Object.values(sessions), created };
-  }
-
-  const api = { TYPES, inferType, MUSCLES, VOL, UPPER, LOWER, DAY_ORDER, weeklyTarget, buildSplit, chunkSets, generatePlan, planVolume, TEMPLATES, uid, seedExercises, e1rm, roundTo, bump, isDeload, rirFor, plannedSets, suggest, bestE1, hardSetsByMuscle, exerciseSeries, muscleIndex, stalled, toStrongCSV, fromStrongCSV, parseCSV, fmtDate, fmtDur, WEEK };
+  const api = { TYPES, inferType, MUSCLES, VOL, UPPER, LOWER, DAY_ORDER, weeklyTarget, buildSplit, chunkSets, generatePlan, planVolume, missingMuscles, TEMPLATES, uid, seedExercises, e1rm, roundTo, bump, isDeload, rirFor, plannedSets, suggest, bestE1, hardSetsByMuscle, exerciseSeries, muscleIndex, stalled, toCSV, CSV_COLS, fmtDate, fmtDur, WEEK };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Core = api;
 })(typeof window !== 'undefined' ? window : globalThis);
