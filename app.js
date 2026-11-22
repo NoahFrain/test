@@ -3,7 +3,7 @@
   'use strict';
   const C = window.Core;
   const KEY = 'hypertrophy.v1';
-  const BUILD = 'v7 · 2026-11-22';
+  const BUILD = 'v7.1 · 2026-11-22';
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fw = (x) => (x === '' || x == null) ? '' : String(Math.round(x * 100) / 100);
@@ -177,12 +177,17 @@
     let h = brandBar(`<button class="sm ghost bad" onclick="A.discard()">Discard</button>`)
       + `<div class="row" style="margin-bottom:4px"><h1 class="sp" style="margin-bottom:0">${esc(a.name)}</h1><span class="chip sel num">${doneSets}/${totalSets} sets</span></div>`
       + `<div class="mut xs num" style="margin:0 2px 14px">Week ${a.week}${dl ? ' · Deload' : ''} · Started ${tstr(a.start)}</div>`;
+    // consecutive movements for the same muscle share one card; each keeps its own controls
+    let curMu = null;
+    const close = () => { if (curMu !== null) h += '</div>'; curMu = null; };
     a.items.forEach((it, i) => {
       const ex = EX[it.exId]; if (!ex) return;
+      if (ex.muscle !== curMu) { close(); curMu = ex.muscle; h += `<div class="card grp"><span class="grp-lbl">${esc(ex.muscle)}</span>`; }
+      else h += '<div class="mv-sep"></div>';
       const badge = { new: '<span class="badge hd">New — enter weight</span>', rec: `<span class="badge rc num">2 RIR rec · ${fw(it.to)} × ${it.rec ? it.rec.reps : it.min}</span>`, up: `<span class="badge up num">↑ ${fw(it.from)} → ${fw(it.to)} · range exceeded</span>`, hold: '<span class="badge hd">Beat last week</span>', down: `<span class="badge dn num">↓ ${fw(it.from)} → ${fw(it.to)}</span>`, deload: '<span class="badge dl">Deload</span>' }[it.mode] || '';
       const recLine = it.rec && it.mode !== 'rec' ? `<span class="xs mut num">2 RIR rec: ${fw(it.rec.w)} × ${it.rec.reps}</span>` : '';
       const recSrc = it.rec ? `<span class="xs dim num">from last ${it.rec.n} session${it.rec.n === 1 ? '' : 's'}</span>` : '';
-      h += `<div class="card"><div class="row" style="align-items:flex-start"><div class="sp"><b style="font-size:15px">${esc(ex.name)}</b><div class="chips" style="margin-top:5px"><span class="chip">${esc(ex.muscle)}</span><span class="chip">${esc(ex.type || 'Other')}</span><span class="chip num">${it.min}–${it.max} reps</span></div></div><button class="ico ghost" title="Swap exercise" onclick="A.swap(${i})">${ICONS.swap}</button><button class="ico ghost" title="More" aria-label="More options" onclick="A.more(${i})">${ICONS.more}</button></div>
+      h += `<div class="mv"><div class="row" style="align-items:flex-start"><div class="sp"><b style="font-size:15px">${esc(ex.name)}</b><div class="chips" style="margin-top:5px"><span class="chip">${esc(ex.type || 'Other')}</span><span class="chip num">${it.min}–${it.max} reps</span></div></div><button class="ico ghost" title="Swap exercise" onclick="A.swap(${i})">${ICONS.swap}</button><button class="ico ghost" title="More" aria-label="More options" onclick="A.more(${i})">${ICONS.more}</button></div>
         <div class="row sm mut" style="margin:8px 0 2px;flex-wrap:wrap;gap:6px">${badge}${recLine}${recSrc}</div>
         ${it.prev ? `<div class="xs dim num" style="margin:4px 0 8px">Last${it.prevFrom ? ' (' + esc(it.prevFrom) + ')' : ''}: ${esc(it.prev)}</div>` : '<div style="height:6px"></div>'}
         <div class="lbl"><span>Set</span><span>${S.settings.unit}</span><span>Reps</span><span>RIR</span><span>Done</span></div>`;
@@ -195,6 +200,7 @@
       });
       h += `<div class="row" style="margin-top:10px;gap:6px"><button class="sm" onclick="A.addSet(${i})">+ Set</button><button class="sm ghost" onclick="A.rmSet(${i})">− Set</button><input style="min-height:34px;padding:6px 10px;font-size:13px" placeholder="Exercise note…" value="${esc(it.note)}" oninput="A.note(${i},this.value)"></div></div>`;
     });
+    close();
     h += `<textarea rows="2" placeholder="Workout notes…" oninput="A.wnote(this.value)">${esc(a.note || '')}</textarea><div style="height:12px"></div><button class="pri" style="width:100%" onclick="A.finish()">Finish workout</button>`;
     return h;
   }

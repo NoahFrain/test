@@ -197,6 +197,9 @@ C.suggest({min:6,max:10}, prevSets, { n:3, rir:2, trigger:'exceed', inc:5 });
 
 ## Changelog
 
+### v7.1 — 2026-11-22
+- Consecutive movements for the same muscle share one card during a workout. The muscle name sits on the card's top-left border and the per-movement muscle chip is gone. Each movement keeps its own swap, ⋯, ± Set and note controls
+
 ### v7 — 2026-11-22
 - Exercise search no longer slides under the iOS keyboard. The sheet sizes to the visible viewport, the search and filters stay pinned at the top, the results list scrolls, and tapping a filter chip keeps the keyboard up
 - Skip / remove a movement mid-workout, for this workout only or permanently from the mesocycle
