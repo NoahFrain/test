@@ -157,7 +157,11 @@ Ab Wheel|Abs|8-15|5`.trim().split('\n');
     const n = ctx.n;
     const blank = (r) => Array.from({ length: n }, () => ({ w: '', r }));
     const ps = (prevSets || []).filter(s => s.done && s.r > 0);
-    if (!ps.length) return { sets: blank(item.min), mode: 'new' };
+    if (!ps.length) {
+      // no history for this movement in this workout slot: fall back to the cross-workout recommendation
+      if (ctx.rec && ctx.rec.w > 0) return { mode: 'rec', from: null, to: ctx.rec.w, sets: Array.from({ length: n }, () => ({ w: ctx.rec.w, r: ctx.rec.reps })) };
+      return { sets: blank(item.min), mode: 'new' };
+    }
     const last = ps[ps.length - 1], w = last.w;
     const rAt = (i) => ps[Math.min(i, ps.length - 1)].r;
     if (ctx.deload) {
@@ -174,6 +178,36 @@ Ab Wheel|Abs|8-15|5`.trim().split('\n');
       return { mode: 'down', from: w, to: nw, sets: Array.from({ length: n }, () => ({ w: nw, r: item.min })) };
     }
     return { mode: 'hold', from: w, to: w, sets: Array.from({ length: n }, (_, i) => ({ w, r: clamp(rAt(i) + 1, item.min, item.max) })) };
+  }
+
+  // ---------- cross-workout recommendation ----------
+  /* Recency weights for the last 6 instances of a movement, newest first. Gentle taper:
+     newest carries ~22% of the estimate, oldest ~11%. */
+  const REC_WEIGHTS = [1, 0.9, 0.8, 0.7, 0.6, 0.5];
+  const REC_ASSUME_RIR = 1; // RIR assumed for sets logged without one
+  /** Epley without the 20-rep cutoff (effective reps = reps + RIR can run past 20 on high-rep work); capped at 30. */
+  const e1rmEff = (w, r) => (w > 0 && r > 0) ? w * (1 + Math.min(r, 30) / 30) : 0;
+  /** instances: newest-first [{sets:[{w,r,rir,done}]}], one per session the movement appeared in, any workout/meso.
+   * Each instance contributes its best set's e1RM (reps + logged RIR, or REC_ASSUME_RIR if blank).
+   * Recency-weighted mean of the last 6 -> weight for the middle of item's range at `rir` reps in reserve.
+   * returns {w, reps, e1, n} or null when there's no loaded history. */
+  function recommend(instances, item, o) {
+    o = o || {};
+    const rir = o.rir == null ? 2 : o.rir, assume = o.assumeRir == null ? REC_ASSUME_RIR : o.assumeRir;
+    const step = o.inc > 0 ? o.inc : 5;
+    const e1s = [];
+    for (const ins of instances || []) {
+      const sets = (ins.sets || []).filter(s => s.done && s.w > 0 && s.r > 0);
+      if (!sets.length) continue;
+      e1s.push(Math.max(...sets.map(s => e1rmEff(s.w, s.r + (Number.isFinite(s.rir) ? s.rir : assume)))));
+      if (e1s.length === REC_WEIGHTS.length) break;
+    }
+    if (!e1s.length) return null;
+    let num = 0, den = 0;
+    e1s.forEach((v, i) => { num += v * REC_WEIGHTS[i]; den += REC_WEIGHTS[i]; });
+    const e1 = num / den, reps = Math.round((item.min + item.max) / 2);
+    const w = fix(roundTo(e1 / (1 + (reps + rir) / 30), step));
+    return w > 0 ? { w, reps, e1: fix(e1), n: e1s.length } : null;
   }
 
 
@@ -382,6 +416,6 @@ Ab Wheel|Abs|8-15|5`.trim().split('\n');
     return rows.join('\n') + '\n';
   }
 
-  const api = { TYPES, inferType, MUSCLES, VOL, UPPER, LOWER, DAY_ORDER, weeklyTarget, buildSplit, chunkSets, generatePlan, planVolume, missingMuscles, TEMPLATES, uid, seedExercises, e1rm, roundTo, bump, isDeload, rirFor, plannedSets, suggest, bestE1, hardSetsByMuscle, exerciseSeries, muscleIndex, stalled, toCSV, CSV_COLS, fmtDate, fmtDur, WEEK };
+  const api = { TYPES, inferType, MUSCLES, VOL, UPPER, LOWER, DAY_ORDER, weeklyTarget, buildSplit, chunkSets, generatePlan, planVolume, missingMuscles, TEMPLATES, uid, seedExercises, e1rm, roundTo, bump, isDeload, rirFor, plannedSets, suggest, recommend, REC_WEIGHTS, bestE1, hardSetsByMuscle, exerciseSeries, muscleIndex, stalled, toCSV, CSV_COLS, fmtDate, fmtDur, WEEK };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Core = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -288,7 +288,9 @@ button.chip{min-height:32px;padding:4px 11px}
 
 /* Modals & Bottom Sheets */
 .modal{
-  position:fixed;inset:0;
+  position:fixed;left:0;right:0;
+  top:var(--vvt,0px);
+  height:var(--vvh,100%);
   background:rgba(8,8,12,.72);
   backdrop-filter:blur(6px);
   -webkit-backdrop-filter:blur(6px);
@@ -302,8 +304,9 @@ button.chip{min-height:32px;padding:4px 11px}
   border-top:1px solid var(--line2);
   width:100%;
   max-width:600px;
-  max-height:86vh;
+  max-height:calc(var(--vvh,100vh) * .9);
   overflow:auto;
+  -webkit-overflow-scrolling:touch;
   border-radius:22px 22px 0 0;
   padding:10px 16px calc(24px + env(safe-area-inset-bottom));
   box-shadow:0 -12px 40px rgba(0,0,0,.5);
@@ -316,6 +319,28 @@ button.chip{min-height:32px;padding:4px 11px}
   background:var(--line2);
   margin:0 auto 14px;
 }
+
+/* Exercise picker: fixed header, list scrolls; whole sheet fits above the keyboard */
+.sheet.pick{
+  display:flex;flex-direction:column;overflow:hidden;
+  height:calc(var(--vvh,100vh) - max(12px, env(safe-area-inset-top)));
+  max-height:none;
+  padding-bottom:0;
+}
+.pick-hd{flex:none;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.pick-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+.chips.hscroll{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-left:-16px;margin-right:-16px;padding:0 16px}
+.chips.hscroll::-webkit-scrollbar{display:none}
+input[type=search]{-webkit-appearance:none;appearance:none}
+input[type=search]::-webkit-search-decoration{-webkit-appearance:none}
+
+/* Action menu (per-movement ⋯) */
+.menu{display:flex;flex-direction:column;gap:6px}
+.mi{justify-content:flex-start;width:100%;min-height:54px;padding:10px 14px;gap:12px;white-space:normal;text-align:left;background:var(--card2)}
+.mi .mi-ic{display:inline-flex;width:22px;justify-content:center;flex:none}
+.mi.bad{color:var(--bad)}
+.mi:disabled{opacity:.45}
+.rc{background:var(--acc-soft);color:var(--acc-hi)}
 
 /* Lists & Tables */
 .li{display:flex;align-items:center;gap:10px;padding:12px 2px;border-bottom:1px solid var(--line);cursor:pointer}
