@@ -1,8 +1,8 @@
 # openGAINS
 
-A private, offline-first hypertrophy tracker. Installs to the iPhone home screen as a PWA, runs with no account, no server and no network, and keeps every set you log on the device.
-
-Built as an RP-style mesocycle planner with the logging ergonomics of Strong, plus the two things neither does well: automatic double progression against a rep range you set up front, and a dashboard that reports progress by muscle group and priority.
+really hate subscriptions, i bet you do too. the gym should be open source, so now it is. 
+openGAINS is an private, offline, no subscriptions, no ads, no weirdness PWA that lets you track your workouts and helps you grow.
+Use it if you want to get jacked and tan.
 
 ---
 
