@@ -1,4 +1,4 @@
-# Lift Bible
+# openGAINS
 
 A private, offline-first hypertrophy tracker. Installs to the iPhone home screen as a PWA, runs with no account, no server and no network, and keeps every set you log on the device.
 
@@ -46,7 +46,7 @@ Exports a single `Core` object (also `module.exports` under node, which is how t
 
 ### `app.js`
 
-Holds all state in one object persisted to `localStorage` under `hypertrophy.v1`.
+Holds all state in one object persisted to `localStorage` under `hypertrophy.v1` (kept stable across rebrands so existing logs carry over).
 
 ```js
 {
@@ -183,6 +183,12 @@ C.suggest({min:6,max:10}, prevSets, { n:3, rir:2, trigger:'exceed', inc:5 });
 ---
 
 ## Changelog
+
+### v6 — 2026-11-22
+- Renamed **Lift Bible → openGAINS** across manifest, service worker, exports, icons, and UI
+- Full UI overhaul with a cleaner neutral-gray and dark-muted-purple dark theme
+- Replaced emoji tab icons with crisp monochrome SVG icons and active pill indicators
+- Upgraded progress charts with dashed gridlines and gradient area fills, refined set-logging cards, and tabular numeric typography
 
 ### v5 — 2026-11-17
 - Renamed **Hypertrophy → Lift Bible**
