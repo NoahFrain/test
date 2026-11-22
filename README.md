@@ -111,7 +111,7 @@ Per muscle, per day:
 
 ### Progression — double progression
 
-Keyed to the **exercise**, not the mesocycle. The app finds the most recent completed session containing that lift, preferring one inside the current block and otherwise falling back to the most recent anywhere. **Progression therefore carries across workouts and across mesocycle boundaries.**
+Keyed to the **movement in a specific workout**, week over week. The app looks only at the last time that lift was done in the same workout (same mesocycle, same day slot). Lat pulldowns at 6–10 in Workout 1 and at 12–15 in Workout 4 progress independently, so a higher-rep slot never reads the lower-rep slot's sets as a missed range.
 
 | Last set vs. range | Next session |
 |---|---|
@@ -124,9 +124,22 @@ The weight jump is solved from estimated 1RM (Epley) for the weight at which the
 
 Worked example: `185×8, 8, 11` on a 6–10 range → next session `200×6, 6, 6`. Log `200×8, 8, 9` → next session holds 200 and asks for `9, 9, 10`.
 
+### 2-RIR recommendation
+
+Every movement with loaded history also gets a recommended weight for the **middle of the target rep range at 2 RIR**, built from its history across all workouts and mesocycles:
+
+1. Take the last 6 sessions the movement appeared in, anywhere.
+2. For each, take the best set's estimated 1RM using Epley on reps + RIR. A set logged without RIR assumes 1.
+3. Average them with recency weights `1.0, 0.9, 0.8, 0.7, 0.6, 0.5` (newest ≈22%, oldest ≈11%). `REC_WEIGHTS` in `core.js` sets this.
+4. Solve for the weight at mid-range reps + 2, rounded to the exercise's step.
+
+If the workout has its own history, double progression prefills the weights and the recommendation is shown as a reference line. If it doesn't (first time in this slot, a new mesocycle, or a mid-workout swap), the recommendation prefills the weights. The card's "Last" line shows this workout's previous sets, or the most recent sets anywhere with that workout's name in brackets.
+
 ### Logging
 
 Set-by-set check-off with weight, reps and optional RIR per set. Rest timer, add/remove set, per-exercise and per-workout notes, previous performance shown inline. Screen stays awake during a session. Swapping an exercise mid-workout asks whether to apply the change to the rest of the mesocycle or just that session.
+
+Each movement card has a **⋯** menu for less frequent actions. It currently holds **Skip / remove**: drop the movement from this workout only, or remove it from the mesocycle plan, with the weekly set loss shown. Add new menu items to `ITEM_MENU` in `app.js`. Each mesocycle plan slot has a stable `pid` so removals and permanent swaps hit the right slot.
 
 ### Dashboard
 
@@ -183,6 +196,13 @@ C.suggest({min:6,max:10}, prevSets, { n:3, rir:2, trigger:'exceed', inc:5 });
 ---
 
 ## Changelog
+
+### v7 — 2026-11-22
+- Exercise search no longer slides under the iOS keyboard. The sheet sizes to the visible viewport, the search and filters stay pinned at the top, the results list scrolls, and tapping a filter chip keeps the keyboard up
+- Skip / remove a movement mid-workout, for this workout only or permanently from the mesocycle
+- Per-movement **⋯** menu for low-frequency actions (holds Skip / remove for now)
+- Double progression now only compares the same movement in the same workout week over week. It no longer reads another workout's sets in a different rep range
+- New 2-RIR mid-range weight recommendation from the last 6 instances of a movement across all workouts and mesocycles, recency-weighted
 
 ### v6 — 2026-11-22
 - Renamed **Lift Bible → openGAINS** across manifest, service worker, exports, icons, and UI

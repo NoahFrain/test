@@ -3,7 +3,7 @@
   'use strict';
   const C = window.Core;
   const KEY = 'hypertrophy.v1';
-  const BUILD = 'v6 · 2026-11-22';
+  const BUILD = 'v7 · 2026-11-22';
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fw = (x) => (x === '' || x == null) ? '' : String(Math.round(x * 100) / 100);
@@ -17,6 +17,8 @@
     prog: '<svg viewBox="0 0 24 24"><path d="M4 19h16M5 15l4.5-4.5 3.5 3 6-7"/><path d="M15.5 6.5H19V10"/></svg>',
     data: '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v6c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3V6"/><path d="M4.5 12v6c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3v-6"/></svg>',
     swap: '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3l4 4-4 4"/><path d="M20 7H8"/><path d="M8 21l-4-4 4-4"/><path d="M4 17h12"/></svg>',
+    more: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="19" cy="12" r="1.9"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>',
   };
   const brandBar = (right) => `<div class="topbar"><span class="brand"><i class="brand-dot"></i><span>open<b>GAINS</b></span></span>${right || ''}</div>`;
 
@@ -37,28 +39,52 @@
   function toast(t) { const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2200); }
 
   // ---------- helpers ----------
-  function lastEntry(exId, mesoId) {
-    const list = [...S.sessions].sort((a, b) => b.start - a.start); let any = null;
-    for (const s of list) {
-      const it = s.items.find(i => i.exId === exId && i.sets.some(x => x.done)); if (!it) continue;
-      if (s.mesoId === mesoId) return { it, s }; if (!any) any = { it, s };
+  const newest = () => [...S.sessions].sort((a, b) => b.start - a.start);
+  const hasDone = (i) => i.sets.some(x => x.done);
+  /** Last time this movement was done in THIS workout (same meso + same day slot). Drives up/hold/down. */
+  function sameDayPrev(exId, mesoId, dayId, pid) {
+    for (const s of newest()) {
+      if (s.mesoId !== mesoId || s.dayId !== dayId) continue;
+      const it = (pid && s.items.find(i => i.exId === exId && i.pid === pid && hasDone(i))) || s.items.find(i => i.exId === exId && hasDone(i));
+      if (it) return { it, s };
     }
-    return any;
+    return null;
   }
+  /** Most recent instance of the movement anywhere (for the "Last:" line when this workout has none). */
+  function lastAny(exId) {
+    for (const s of newest()) { const it = s.items.find(i => i.exId === exId && hasDone(i)); if (it) return { it, s }; }
+    return null;
+  }
+  /** Newest-first, one entry per session the movement appears in, any workout / any meso. */
+  function instances(exId, max) {
+    const out = [];
+    for (const s of newest()) {
+      const sets = s.items.filter(i => i.exId === exId).flatMap(i => i.sets.filter(x => x.done));
+      if (sets.length) out.push({ sets, s }); if (out.length >= max) break;
+    }
+    return out;
+  }
+  const setStr = (sets) => sets.filter(x => x.done).map(x => fw(x.w) + '×' + x.r + (Number.isFinite(x.rir) ? ' (' + x.rir + ')' : '')).join(', ');
   function lastMeso() { return [...S.mesos].sort((x, y) => y.start - x.start)[0] || null; }
   function lastRanges() {
     const out = {}; const m = lastMeso(); if (!m) return out;
     m.days.forEach(d => d.items.forEach(it => { out[it.exId] = { min: it.min, max: it.max }; }));
     return out;
   }
-  function buildItem(m, week, exId, tmpl) {
+  function buildItem(m, week, exId, tmpl, dayId) {
     const ex = EX[exId], n = C.plannedSets(tmpl.sets, prioOf(m, ex.muscle), week, m);
-    const prev = lastEntry(exId, m.id);
-    const sg = C.suggest({ min: tmpl.min, max: tmpl.max }, prev && prev.it.sets, { n, rir: 2, deload: C.isDeload(m, week), trigger: S.settings.trigger, dropBelow: S.settings.dropBelow, inc: ex.inc });
-    return { exId, min: tmpl.min, max: tmpl.max, mode: sg.mode, from: sg.from, to: sg.to, base: tmpl.sets, note: '',
-      prev: prev ? prev.it.sets.filter(x => x.done).map(x => fw(x.w) + '×' + x.r + (Number.isFinite(x.rir) ? ' (' + x.rir + ')' : '')).join(', ') : '',
+    const prev = sameDayPrev(exId, m.id, dayId, tmpl.pid);
+    const rec = C.recommend(instances(exId, C.REC_WEIGHTS.length), { min: tmpl.min, max: tmpl.max }, { rir: 2, inc: ex.inc });
+    const sg = C.suggest({ min: tmpl.min, max: tmpl.max }, prev && prev.it.sets, { n, rir: 2, deload: C.isDeload(m, week), trigger: S.settings.trigger, dropBelow: S.settings.dropBelow, inc: ex.inc, rec });
+    const other = prev ? null : lastAny(exId);
+    return { exId, pid: tmpl.pid || null, min: tmpl.min, max: tmpl.max, mode: sg.mode, from: sg.from, to: sg.to, base: tmpl.sets, note: '',
+      rec: rec ? { w: rec.w, reps: rec.reps, n: rec.n } : null,
+      prev: prev ? setStr(prev.it.sets) : other ? setStr(other.it.sets) : '',
+      prevFrom: !prev && other ? other.s.name : '',
       sets: sg.sets.map(s => ({ w: s.w, r: s.r, rir: '', done: false })) };
   }
+  /** Give each plan slot a stable id so a session item can find its slot even after swaps/reorders. */
+  function ensurePids(m) { let ch = false; m.days.forEach(d => d.items.forEach(it => { if (!it.pid) { it.pid = C.uid(); ch = true; } })); return ch; }
   function shareOrDownload(name, text, mime) {
     const file = new File([text], name, { type: mime });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -153,9 +179,12 @@
       + `<div class="mut xs num" style="margin:0 2px 14px">Week ${a.week}${dl ? ' · Deload' : ''} · Started ${tstr(a.start)}</div>`;
     a.items.forEach((it, i) => {
       const ex = EX[it.exId]; if (!ex) return;
-      const badge = { new: '<span class="badge hd">New — enter weight</span>', up: `<span class="badge up num">↑ ${fw(it.from)} → ${fw(it.to)} · range exceeded</span>`, hold: '<span class="badge hd">Beat last session</span>', down: `<span class="badge dn num">↓ ${fw(it.from)} → ${fw(it.to)}</span>`, deload: '<span class="badge dl">Deload</span>' }[it.mode] || '';
-      h += `<div class="card"><div class="row" style="align-items:flex-start"><div class="sp"><b style="font-size:15px">${esc(ex.name)}</b><div class="chips" style="margin-top:5px"><span class="chip">${esc(ex.muscle)}</span><span class="chip">${esc(ex.type || 'Other')}</span><span class="chip num">${it.min}–${it.max} reps</span></div></div><button class="ico ghost" title="Swap exercise" onclick="A.swap(${i})">${ICONS.swap}</button></div>
-        <div class="row sm mut" style="margin:8px 0 8px;flex-wrap:wrap;gap:6px">${badge}${it.prev ? `<span class="xs dim num">Last: ${esc(it.prev)}</span>` : ''}</div>
+      const badge = { new: '<span class="badge hd">New — enter weight</span>', rec: `<span class="badge rc num">2 RIR rec · ${fw(it.to)} × ${it.rec ? it.rec.reps : it.min}</span>`, up: `<span class="badge up num">↑ ${fw(it.from)} → ${fw(it.to)} · range exceeded</span>`, hold: '<span class="badge hd">Beat last week</span>', down: `<span class="badge dn num">↓ ${fw(it.from)} → ${fw(it.to)}</span>`, deload: '<span class="badge dl">Deload</span>' }[it.mode] || '';
+      const recLine = it.rec && it.mode !== 'rec' ? `<span class="xs mut num">2 RIR rec: ${fw(it.rec.w)} × ${it.rec.reps}</span>` : '';
+      const recSrc = it.rec ? `<span class="xs dim num">from last ${it.rec.n} session${it.rec.n === 1 ? '' : 's'}</span>` : '';
+      h += `<div class="card"><div class="row" style="align-items:flex-start"><div class="sp"><b style="font-size:15px">${esc(ex.name)}</b><div class="chips" style="margin-top:5px"><span class="chip">${esc(ex.muscle)}</span><span class="chip">${esc(ex.type || 'Other')}</span><span class="chip num">${it.min}–${it.max} reps</span></div></div><button class="ico ghost" title="Swap exercise" onclick="A.swap(${i})">${ICONS.swap}</button><button class="ico ghost" title="More" aria-label="More options" onclick="A.more(${i})">${ICONS.more}</button></div>
+        <div class="row sm mut" style="margin:8px 0 2px;flex-wrap:wrap;gap:6px">${badge}${recLine}${recSrc}</div>
+        ${it.prev ? `<div class="xs dim num" style="margin:4px 0 8px">Last${it.prevFrom ? ' (' + esc(it.prevFrom) + ')' : ''}: ${esc(it.prev)}</div>` : '<div style="height:6px"></div>'}
         <div class="lbl"><span>Set</span><span>${S.settings.unit}</span><span>Reps</span><span>RIR</span><span>Done</span></div>`;
       it.sets.forEach((s, j) => {
         h += `<div class="setrow ${s.done ? 'done' : ''}"><span class="n">${j + 1}</span>
@@ -352,8 +381,26 @@
   function modalHTML() {
     const q = ui.modal;
     if (q.type === 'pick') {
-      return `<div class="modal" onclick="if(event.target===this)A.closeModal()"><div class="sheet"><div class="row"><input id="pq" placeholder="Search exercises…" value="${esc(q.q)}" oninput="A.pq(this.value)" style="flex:1"><button class="pri" onclick="A.exEdit(null,true)">＋</button></div>
-        <div class="chips" style="margin:10px 0 6px">${C.MUSCLES.map(mu => `<button class="chip ${q.muscle === mu ? 'sel' : ''}" onclick="A.pm('${mu}')">${mu}</button>`).join('')}</div><div class="chips" style="margin-bottom:10px">${C.TYPES.map(t => `<button class="chip ${q.tf === t ? 'sel' : ''}" onclick="A.pt('${t}')">${t}</button>`).join('')}</div><div id="pl">${pickList()}</div></div></div>`;
+      return `<div class="modal" onclick="if(event.target===this)A.closeModal()"><div class="sheet pick"><div class="pick-hd"><div class="row"><input id="pq" type="search" enterkeyhint="search" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Search exercises…" value="${esc(q.q)}" oninput="A.pq(this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="flex:1"><button class="pri" onclick="A.exEdit(null,true)">＋</button></div>
+        <div class="chips hscroll" id="pmc" style="margin-top:10px">${pickChips('m')}</div><div class="chips hscroll" id="ptc" style="margin-top:6px">${pickChips('t')}</div></div><div id="pl" class="pick-list">${pickList()}</div></div></div>`;
+    }
+    if (q.type === 'menu') {
+      const it = S.active && S.active.items[q.i], ex = it && EX[it.exId]; if (!ex) return '';
+      return `<div class="modal" onclick="if(event.target===this)A.closeModal()"><div class="sheet"><div class="xs mut" style="text-transform:uppercase;letter-spacing:.08em;margin:0 2px 8px">${esc(ex.name)}</div>
+        <div class="menu">${ITEM_MENU.map(o => `<button class="mi ${o.cls || ''}" onclick="${o.act}(${q.i})"><span class="mi-ic">${o.icon}</span><span class="sp" style="text-align:left">${esc(o.label)}<span class="xs mut" style="display:block;font-weight:400;margin-top:1px">${esc(o.sub)}</span></span></button>`).join('')}</div>
+        <button class="ghost" style="width:100%;margin-top:8px" onclick="A.closeModal()">Cancel</button></div></div>`;
+    }
+    if (q.type === 'remove') {
+      const a = S.active, it = a && a.items[q.i], ex = it && EX[it.exId]; if (!ex) return '';
+      const m = S.mesos.find(x => x.id === a.mesoId), day = m && m.days.find(d => d.id === a.dayId), slot = planSlot(day, it);
+      const done = it.sets.filter(s => s.done).length, only = day && day.items.length <= 1;
+      return `<div class="modal" onclick="if(event.target===this)A.closeModal()"><div class="sheet"><h1 style="font-size:20px;margin-bottom:6px">Remove ${esc(ex.name)}?</h1>
+        ${done ? `<div class="card sm" style="color:var(--warn);border-color:rgba(217,180,100,.35);background:var(--warn-bg);margin:8px 0">${done} logged set${done === 1 ? '' : 's'} on this movement will be discarded.</div>` : ''}
+        <div class="menu" style="margin-top:10px">
+          <button class="mi" onclick="A.rmDo(${q.i},false)"><span class="sp" style="text-align:left">This workout only<span class="xs mut" style="display:block;font-weight:400;margin-top:1px">Skip it today. It stays in the plan for next week.</span></span></button>
+          <button class="mi bad" ${slot && !only ? '' : 'disabled'} onclick="A.rmDo(${q.i},true)"><span class="sp" style="text-align:left">Remove from mesocycle<span class="xs mut" style="display:block;font-weight:400;margin-top:1px">${!slot ? 'Not part of this workout’s plan.' : only ? 'It’s the only movement in this workout.' : `Deletes it from ${esc(day.name)} for the rest of ${esc(m.name)} (−${slot.sets} ${esc(ex.muscle)} sets/week).`}</span></span></button>
+        </div>
+        <button class="ghost" style="width:100%;margin-top:8px" onclick="A.closeModal()">Cancel</button></div></div>`;
     }
     if (q.type === 'missing') {
       return `<div class="modal" onclick="if(event.target===this)A.closeModal()"><div class="sheet"><h1 style="font-size:20px;margin-bottom:8px">Untrained muscle groups</h1>
@@ -372,6 +419,20 @@
         <div class="g2" style="margin-top:14px">${q.id ? '<button class="bad" onclick="A.exDel()">Delete</button>' : '<button onclick="A.closeModal()">Cancel</button>'}<button class="pri" onclick="A.exSave()">Save</button></div></div></div>`;
     }
     return '';
+  }
+  function pickChips(k) {
+    const q = ui.modal;
+    return k === 'm' ? C.MUSCLES.map(mu => `<button class="chip ${q.muscle === mu ? 'sel' : ''}" onmousedown="event.preventDefault()" onclick="A.pm('${mu}')">${mu}</button>`).join('')
+      : C.TYPES.map(t => `<button class="chip ${q.tf === t ? 'sel' : ''}" onmousedown="event.preventDefault()" onclick="A.pt('${t}')">${t}</button>`).join('');
+  }
+  /** Per-movement ⋯ menu. Add future actions here: {icon,label,sub,cls,act} where act(i) is a global handler. */
+  const ITEM_MENU = [
+    { icon: ICONS.trash, label: 'Skip / remove movement', sub: 'Drop it from today, or from the mesocycle', cls: 'bad', act: 'A.rmAsk' },
+  ];
+  /** The mesocycle plan slot a session item came from. */
+  function planSlot(day, it) {
+    if (!day) return null;
+    return (it.pid && day.items.find(x => x.pid === it.pid)) || day.items.find(x => x.exId === it.exId) || null;
   }
   function pickList() {
     const q = ui.modal, s = (q.q || '').toLowerCase();
@@ -401,7 +462,8 @@
     // --- session
     start(dayId) {
       const m = activeMeso(), d = m.days.find(x => x.id === dayId);
-      S.active = { id: C.uid(), mesoId: m.id, week: m.week, dayId, name: d.name, start: Date.now(), note: '', items: d.items.filter(it => EX[it.exId]).map(it => buildItem(m, m.week, it.exId, it)) };
+      ensurePids(m);
+      S.active = { id: C.uid(), mesoId: m.id, week: m.week, dayId, name: d.name, start: Date.now(), note: '', items: d.items.filter(it => EX[it.exId]).map(it => buildItem(m, m.week, it.exId, it, dayId)) };
       save(); lock(); render(); window.scrollTo(0, 0);
     },
     sv(i, j, f, v) {
@@ -417,7 +479,7 @@
         const last = it.sets.filter(x => x.done).length === it.sets.length || j === it.sets.length - 1;
         if (last && j === it.sets.length - 1 && !C.isDeload(S.mesos.find(m => m.id === S.active.mesoId), S.active.week)) {
           const exceeded = S.settings.trigger === 'hit' ? s.r >= it.max : s.r > it.max;
-          if (exceeded) toast('↑ Weight goes up next session');
+          if (exceeded) toast('↑ Weight goes up next week in this workout');
         }
       }
       save(); render();
@@ -426,6 +488,18 @@
     rmSet(i) { const it = S.active.items[i]; if (it.sets.length > 1 && !it.sets[it.sets.length - 1].done) it.sets.pop(); save(); render(); },
     note(i, v) { S.active.items[i].note = v; save(); }, wnote(v) { S.active.note = v; save(); },
     swap(i) { ui.modal = { type: 'pick', mode: 'swap', i, q: '', muscle: EX[S.active.items[i].exId].muscle }; render(); },
+    more(i) { ui.modal = { type: 'menu', i }; render(); },
+    rmAsk(i) { ui.modal = { type: 'remove', i }; render(); },
+    rmDo(i, perm) {
+      const a = S.active, it = a.items[i]; if (!it) return;
+      const name = EX[it.exId] ? EX[it.exId].name : 'Movement';
+      if (perm) {
+        const m = S.mesos.find(x => x.id === a.mesoId), day = m && m.days.find(d => d.id === a.dayId), slot = planSlot(day, it);
+        if (slot && day.items.length > 1) day.items.splice(day.items.indexOf(slot), 1);
+      }
+      a.items.splice(i, 1); ui.modal = null; save(); render();
+      toast(perm ? name + ' removed from mesocycle' : name + ' skipped');
+    },
     finish() {
       const a = S.active, n = a.items.reduce((c, it) => c + it.sets.filter(s => s.done).length, 0);
       if (!n) { if (confirm('No completed sets. Discard this workout?')) A.discard(true); return; }
@@ -503,8 +577,9 @@
     },
     // --- picker / exercise editor
     pq(v) { ui.modal.q = v; $('#pl').innerHTML = pickList(); },
-    pm(mu) { const q = $('#pq').value; ui.modal.muscle = ui.modal.muscle === mu ? '' : mu; ui.modal.q = q; render(); },
-    pt(t) { const q = $('#pq').value; ui.modal.tf = ui.modal.tf === t ? '' : t; ui.modal.q = q; render(); },
+    // filter chips refresh in place so the search field keeps focus (and the keyboard stays up)
+    pm(mu) { ui.modal.muscle = ui.modal.muscle === mu ? '' : mu; $('#pmc').innerHTML = pickChips('m'); $('#pl').innerHTML = pickList(); $('#pl').scrollTop = 0; },
+    pt(t) { ui.modal.tf = ui.modal.tf === t ? '' : t; $('#ptc').innerHTML = pickChips('t'); $('#pl').innerHTML = pickList(); $('#pl').scrollTop = 0; },
     swapD(di, ii) { ui.modal = { type: 'pick', mode: 'dswap', di, ii, q: '', muscle: EX[ui.draft.days[di].items[ii].exId].muscle }; render(); },
     pick(exId) {
       const q = ui.modal, ex = EX[exId];
@@ -513,8 +588,8 @@
       else {
         const a = S.active, m = S.mesos.find(x => x.id === a.mesoId), old = a.items[q.i], oldId = old.exId;
         if (oldId !== exId) {
-          a.items[q.i] = buildItem(m, a.week, exId, { sets: old.base || old.sets.length, min: old.min, max: old.max });
-          const day = m.days.find(d => d.id === a.dayId), t = day && day.items.find(i => i.exId === oldId);
+          a.items[q.i] = buildItem(m, a.week, exId, { sets: old.base || old.sets.length, min: old.min, max: old.max, pid: old.pid }, a.dayId);
+          const day = m.days.find(d => d.id === a.dayId), t = planSlot(day, old);
           if (t && confirm('Also replace it in the mesocycle for future sessions?\n\nOK = permanent swap\nCancel = this workout only')) t.exId = exId;
           save();
         }
@@ -560,6 +635,15 @@
     delSess(id) { if (confirm('Delete this workout?')) { S.sessions = S.sessions.filter(s => s.id !== id); save(); render(); } },
     reset() { if (confirm('Erase ALL data on this device? Export first if unsure.') && confirm('Really erase everything?')) { S = fresh(); save(); reindex(); render(); } },
   };
+
+  // iOS keyboard overlays fixed elements instead of resizing them. Track the visible viewport so
+  // bottom sheets shrink to the space above the keyboard rather than sliding underneath it.
+  const vv = window.visualViewport;
+  function fitVV() {
+    if (!vv) return; const r = document.documentElement.style;
+    r.setProperty('--vvh', vv.height + 'px'); r.setProperty('--vvt', vv.offsetTop + 'px');
+  }
+  if (vv) { vv.addEventListener('resize', fitVV); vv.addEventListener('scroll', fitVV); fitVV(); }
 
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => { });
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => { });
