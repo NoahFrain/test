@@ -1,8 +1,8 @@
 # openGAINS
 
-really hate subscriptions, i bet you do too. the gym should be open source, so now it is. 
-openGAINS is an private, offline, no subscriptions, no ads, no weirdness PWA that lets you track your workouts and helps you grow.
-Use it if you want to get jacked and tan.
+A private, offline-first hypertrophy tracker. Installs to the iPhone home screen as a PWA, runs with no account, no server and no network, and keeps every set you log on the device.
+
+Built as an RP-style mesocycle planner with the logging ergonomics of Strong, plus the two things neither does well: automatic double progression against a rep range you set up front, and a dashboard that reports progress by muscle group and priority.
 
 ---
 
@@ -11,10 +11,10 @@ Use it if you want to get jacked and tan.
 Three problems drove the build.
 
 1. **Progression should be automatic, not remembered.** You set a rep range per exercise at the start of a mesocycle. When the last set of a lift exceeds that range, the app raises the weight next session and resets reps to the bottom of the range. No arithmetic in the gym.
-2. **Volume should be planned, not accumulated.** Weekly set counts come from published volume landmarks and the priority you assign each muscle, and then stay flat for the whole block. Progression comes from load and reps, not from piling on sets.
+2. **Volume should be planned, then steered.** Weekly set counts start from published volume landmarks and the priority you assign each muscle. From there, per-muscle feedback after each workout (pump, soreness, joint pain, workload) moves that muscle's sets up, holds them, or backs them off, one workout slot at a time. Load and reps still carry most of the progression.
 3. **The data is yours.** Everything is local. Full CSV export for spreadsheet work, JSON backup and restore for moving devices.
 
-Non-goals: accounts, sync, social features, a server of any kind.
+Non-goals (for now): accounts, sync, social features, a server of any kind.
 
 ---
 
@@ -96,7 +96,21 @@ Weekly sets per muscle, from the MEV-to-MAV landmarks popularized by Renaissance
 
 Each muscle also carries a **per-session cap** and a **weekly frequency cap**, so volume is distributed rather than dumped. A muscle targeting ~6 sets per session lands on fewer days than one targeting 3.
 
-**Set counts stay flat for the entire mesocycle.** Only the deload changes them, to about half.
+**Set counts start flat and change only through feedback** (below). The deload halves them.
+
+### Volume feedback (per muscle, per workout)
+
+When every working set for a muscle in a workout is checked off, its card shows four questions: **pump** (low / moderate / great), **soreness since last time** (never sore / healed early / healed on time / still sore), **joint pain** (none / some / a lot) and **workload** (easy / good / pushed limits / too much).
+
+| Answers | Next week, this workout |
+|---|---|
+| Joint pain *a lot*, workload *too much*, or *still sore* | −1 set |
+| Joint pain *some*, or *healed on time* | Hold |
+| Great pump and *pushed limits* | Hold |
+| Low pump, *easy*, *never sore* | +2 sets |
+| Otherwise (recovered early) | +1 set |
+
+Maintain-priority muscles never go up. Adds go to that muscle's movement with the fewest sets and stop at the muscle's per-session cap; cuts come off the movement with the most sets, never below 1. The card previews the exact change ("Lat Pulldown 3 → 4"); it is applied to the mesocycle plan when you tap **Finish workout**, so a discarded workout changes nothing. Feedback is hidden in deload weeks and can be skipped per muscle. `volumeDelta` and `distributeSets` in `core.js` hold the rules.
 
 ### Set splitting
 
@@ -120,6 +134,10 @@ Keyed to the **movement in a specific workout**, week over week. The app looks o
 | Below min | Hold, or ↓ one increment (optional setting) |
 | Deload week | Hold weight, ~half the sets |
 
+Only **working** and **failure** sets drive this. Warm-ups, drop sets and myo-rep sets are ignored, so a drop set at the end never reads as a missed range.
+
+**Bodyweight and assisted lifts.** Each exercise has a load type: *external* (the number you log is the load), *bodyweight + added* (pull-ups, dips: log the added load, 0 for bodyweight) or *assisted* (assisted pull-up/dip machines: log the assistance). Progression, recommendations and 1RM run on the load actually moved, using your logged bodyweight on that date, then convert back to the number you log. On assisted lifts "up" means less assistance and "down" means more. Without a bodyweight entry, assisted lifts step assistance down one increment and get no recommendation.
+
 The weight jump is solved from estimated 1RM (Epley) for the weight at which the range minimum would sit at your target RIR, then clamped to at least one increment and at most one increment above +10%, and rounded to that exercise's step. Logged RIR on the triggering set feeds the estimate, so an easier set produces a slightly larger jump.
 
 Worked example: `185×8, 8, 11` on a 6–10 range → next session `200×6, 6, 6`. Log `200×8, 8, 9` → next session holds 200 and asks for `9, 9, 10`.
@@ -128,8 +146,8 @@ Worked example: `185×8, 8, 11` on a 6–10 range → next session `200×6, 6, 6
 
 Every movement with loaded history also gets a recommended weight for the **middle of the target rep range at 2 RIR**, built from its history across all workouts and mesocycles:
 
-1. Take the last 6 sessions the movement appeared in, anywhere.
-2. For each, take the best set's estimated 1RM using Epley on reps + RIR. A set logged without RIR assumes 1.
+1. Take the last 6 sessions the movement appeared in, anywhere (working and failure sets only).
+2. For each, take the best set's estimated 1RM using Epley on reps + RIR. A set logged without RIR assumes 1; a failure set assumes 0.
 3. Average them with recency weights `1.0, 0.9, 0.8, 0.7, 0.6, 0.5` (newest ≈22%, oldest ≈11%). `REC_WEIGHTS` in `core.js` sets this.
 4. Solve for the weight at mid-range reps + 2, rounded to the exercise's step.
 
@@ -137,25 +155,47 @@ If the workout has its own history, double progression prefills the weights and 
 
 ### Logging
 
-Set-by-set check-off with weight, reps and optional RIR per set. Rest timer, add/remove set, per-exercise and per-workout notes, previous performance shown inline. Screen stays awake during a session. Swapping an exercise mid-workout asks whether to apply the change to the rest of the mesocycle or just that session.
+Set-by-set check-off with weight, reps and optional RIR per set. Rest timer (chimes at zero while the app is open), add/remove set, per-exercise and per-workout notes, previous performance shown inline. Screen stays awake during a session. Swapping an exercise mid-workout asks whether to apply the change to the rest of the mesocycle or just that session. Consecutive movements for the same muscle share one card, labelled on its top border.
 
-Each movement card has a **⋯** menu for less frequent actions. It currently holds **Skip / remove**: drop the movement from this workout only, or remove it from the mesocycle plan, with the weekly set loss shown. Add new menu items to `ITEM_MENU` in `app.js`. Each mesocycle plan slot has a stable `pid` so removals and permanent swaps hit the right slot.
+**Set types.** Tap a set's number to mark it:
+
+| Type | Volume | Progression / rec / 1RM | Rest after |
+|---|---|---|---|
+| Working (default) | ✓ | ✓ | exercise rest |
+| Warm-up `W` | – | – | min(60 s, exercise rest) |
+| Drop set `D` | ✓ | – | none |
+| Myo-reps `M` | ✓ | – | 20 s |
+| Failure `F` (RIR 0) | ✓ | ✓ | exercise rest |
+
+Types carry to the same position next week, and drop/myo sets keep last week's numbers instead of the progressed weight. The set counter at the top excludes warm-ups.
+
+Each movement card has a **⋯** menu for less frequent actions. Add new items to `ITEM_MENU` in `app.js`.
+- **Add warm-up sets** — ramp to the first working weight: Standard 50/70/85% (×8/4/2), Light 60/80%, or Thorough 40/55/70/85% (Data → Settings). Rounded down to the exercise step, never below the empty bar on barbell lifts (45 lb / 20 kg), duplicates dropped. Re-running replaces unchecked warm-ups. Not offered on bodyweight or assisted lifts.
+- **Rest timer** — per-exercise rest saved on the exercise (also editable in the library); blank = the global default.
+- **Skip / remove** — drop the movement from this workout only, or remove it from the mesocycle plan, with the weekly set loss shown. Each plan slot has a stable `pid` so removals and permanent swaps hit the right slot.
+
+**Bodyweight** is logged from the Train tab (one entry per day; re-logging replaces it) or inline on a bodyweight/assisted card when none exists, and charted on Progress.
+
+### First-run tutorial
+
+Same component as openMACROS: a 6-step swipeable walkthrough (welcome → building a mesocycle → logging and set types → how weights move → volume feedback → backups), opening over the relevant tab. In iPhone Safari it leads with an *Install it first* step. Finishing with no mesocycle goes straight into the builder. Shown when `tutorialSeen < TUTORIAL_V`; existing users with data skip it on upgrade; *Erase all data* shows it again; replay from Data → Settings.
 
 ### Dashboard
 
-- **Strength index by muscle** — estimated 1RM indexed to the first session at 100
+- **Strength index by muscle** — estimated 1RM (load actually moved) indexed to the first session at 100
 - **Sets this week** — logged vs. target per muscle, scrubable by week
 - **Muscle summary** — percentage change and stalled-lift flags
 - **Per-exercise** — e1RM trend plus recent sessions
+- **Bodyweight** — trend chart and the last 5 entries
 
 Filterable by priority tier and by current mesocycle vs. all time.
 
 ### Data
 
-- **Export CSV** — one row per completed set, 21 columns: date, time, mesocycle, week, deload flag, workout, duration, exercise, muscle, equipment, rep min/max, set number, weight, unit, reps, RIR, estimated 1RM, volume, exercise note, workout note
+- **Export CSV** — one row per completed set, 25 columns: date, time, mesocycle, week, deload flag, workout, duration, exercise, muscle, equipment, rep min/max, set number, weight, unit, reps, RIR, estimated 1RM, volume, exercise note, workout note, then (v8, appended so existing sheets keep their mappings) set type, load type, bodyweight, effective load. Est 1RM is blank on warm-up/drop/myo sets; volume uses effective load
 - **Backup (JSON)** — complete state
 - **Restore from backup** — validates the file, confirms the workout count, then replaces everything on the device
-- Exercise library is editable: name, muscle, equipment type, default rep range, weight increment
+- Exercise library is editable: name, muscle, equipment type, default rep range, weight increment, load type, rest
 
 Equipment types: Machine, Smith Machine, Cable, Barbell, Dumbbell, Bodyweight, Other.
 
@@ -196,6 +236,17 @@ C.suggest({min:6,max:10}, prevSets, { n:3, rir:2, trigger:'exceed', inc:5 });
 ---
 
 ## Changelog
+
+### v8 — 2026-11-22
+- First-run tutorial (same component as openMACROS); replay from Data → Settings
+- Per-muscle volume feedback on each muscle's card: pump, soreness, joint pain, workload → +2…−1 sets next week for that muscle in that workout, applied on Finish
+- Set types: warm-up, drop, myo-reps, failure. Warm-ups excluded from volume; only working/failure sets drive progression, recommendations and 1RM
+- Warm-up calculator in the ⋯ menu, three ramp presets
+- Per-exercise rest timer; rest chimes at zero; shorter automatic rest after warm-up and myo sets, none after drop sets
+- Bodyweight log (Train tab, Progress chart); bodyweight + added and assisted load types; Assisted Pull Up and Assisted Dip added to the library
+- Pull-ups, dips and assisted lifts now get 1RM tracking, progression on load actually moved, and recommendations
+- Fix: the rest timer no longer covers *Finish workout* at the bottom of a session
+- CSV: 4 new columns appended
 
 ### v7.1 — 2026-11-22
 - Consecutive movements for the same muscle share one card during a workout. The muscle name sits on the card's top-left border and the per-movement muscle chip is gone. Each movement keeps its own swap, ⋯, ± Set and note controls
@@ -255,4 +306,6 @@ C.suggest({min:6,max:10}, prevSets, { n:3, rir:2, trigger:'exceed', inc:5 });
 - Data lives in `localStorage` on one device. There is no sync. Back up periodically; the Train tab nags after 14 days without an export.
 - Volume landmarks are population averages, not prescriptions.
 - Estimated 1RM uses Epley and gets unreliable above ~15 reps.
+- The rest timer can't alert you when the phone is locked or the app is in the background; iOS web apps can't vibrate.
+- Feedback answers describe one workout, so a muscle trained in two workouts a week is steered separately in each.
 - The dashboard's strength index is relative to your first logged session for each lift, so it is a trend, not a comparison between muscles.
