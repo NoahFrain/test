@@ -49,6 +49,8 @@ html,body{
 }
 body{padding:env(safe-area-inset-top) 0 0}
 #app{max-width:600px;margin:0 auto;padding:12px 14px calc(92px + env(safe-area-inset-bottom))}
+/* rest timer floats above the tab bar: leave room so the last controls can scroll clear of it */
+body.has-timer #app{padding-bottom:calc(156px + env(safe-area-inset-bottom))}
 
 /* Header & typography */
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:4px 2px 10px;margin-bottom:2px}
@@ -267,6 +269,48 @@ button.chip{min-height:32px;padding:4px 11px}
 .setrow.done .n{color:var(--ok)}
 .setrow.done input{background:rgba(107,191,155,.09);border-color:var(--ok-line);color:var(--tx)}
 .setrow.done .chk{background:var(--ok);color:#0e1c16;border-color:var(--ok);font-weight:700}
+
+/* Set types: the set-number cell is a button that opens the type picker */
+.setrow button.n{min-height:42px;padding:0;border-radius:10px;background:transparent;border:1px dashed transparent;font-size:13px;font-weight:700;color:var(--dim)}
+.setrow button.n:hover{border-color:var(--line2);background:var(--card2)}
+.setrow.t-W .n{color:var(--warn)}
+.setrow.t-W input{opacity:.72}
+.setrow.t-D .n{color:#c48cb3}
+.setrow.t-M .n{color:#7c9bc4}
+.setrow.t-F .n{color:var(--bad)}
+.setrow.done.t-W .n{color:var(--warn)}
+.st-ic{font-weight:800;font-size:14px;border-radius:7px;width:26px!important;height:26px;align-items:center;background:var(--card3)}
+.st-ic.t-W{color:var(--warn)}.st-ic.t-D{color:#c48cb3}.st-ic.t-M{color:#7c9bc4}.st-ic.t-F{color:var(--bad)}.st-ic.t-N{color:var(--mut)}
+.mi.on{border-color:var(--acc);background:var(--acc-soft)}
+
+/* Per-muscle feedback (bottom of the muscle's card) */
+.fb{margin:16px -15px -15px;padding:13px 15px 15px;border-top:1px solid var(--line);background:linear-gradient(180deg,rgba(139,116,189,.07),rgba(139,116,189,.02));border-radius:0 0 16px 16px}
+.fb.fb-min{display:flex;align-items:center;gap:8px;padding:8px 15px}
+.fb-q{margin-top:9px}
+.fb-opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
+.fb-opts .chip{min-height:34px;padding:4px 11px}
+
+/* KPI tiles (shared with openMACROS) */
+.kpi{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:10px 11px}
+
+/* First-run tutorial (same component as openMACROS) */
+.sheet.tour{padding-bottom:calc(20px + env(safe-area-inset-bottom));touch-action:pan-y;display:flex;flex-direction:column;min-height:min(560px,86vh)}
+.sheet.tour .tour-step{flex:1}
+.tour-step{animation:tourIn .28s var(--ease) both;padding:6px 2px 4px}
+@keyframes tourIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.tour-ic{width:52px;height:52px;border-radius:16px;background:var(--acc-soft);border:1px solid rgba(139,116,189,.3);color:var(--acc-hi);display:flex;align-items:center;justify-content:center;margin:6px 0 14px}
+.tour-ic svg{width:26px;height:26px}
+.tour-h{display:block;font-size:22px;letter-spacing:-.01em;line-height:1.2}
+.tour-p{margin:8px 0 14px;line-height:1.5}
+.tour-demo{pointer-events:none;margin-bottom:14px}
+.tour-demo .setrow{margin:4px 0}
+.tour-loop .kpi{text-align:center}
+.tour-pts{list-style:none;margin:0 0 4px;padding:0}
+.tour-pts li{position:relative;padding:0 0 9px 18px;font-size:13.5px;line-height:1.45;color:var(--tx)}
+.tour-pts li::before{content:"";position:absolute;left:3px;top:7px;width:6px;height:6px;border-radius:99px;background:var(--acc)}
+.tour-dots{display:flex;justify-content:center;gap:6px;margin:12px 0 14px}
+.tour-dots i{width:6px;height:6px;border-radius:99px;background:var(--line2);transition:width .2s var(--ease),background .2s}
+.tour-dots i.on{width:18px;background:var(--acc-hi)}
 
 /* Progress bars */
 .prog{height:7px;border-radius:99px;background:var(--card2);overflow:hidden}
